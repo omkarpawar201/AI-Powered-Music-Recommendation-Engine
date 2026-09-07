@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">MediaSession POC</string>
+    <string name="app_title">MediaSession POC</string>
+    <string name="app_subtitle">AI Music Recommender Middleware</string>
+    <string name="refresh_sessions">Refresh Sessions</string>
+    <string name="status_active">Active</string>
+    <string name="status_no_permission">No Permission</string>
+    <string name="status_waiting">Waiting…</string>
+    <string name="perm_media_title">⚠ Media Access Permission Required</string>
+    <string name="perm_media_desc">Android requires Notification &amp; Media Listener permission to observe Apple Music and YouTube Music playback.</string>
+    <string name="perm_media_button">Grant Media Permission</string>
+    <string name="perm_battery_title">⚡ Background Running &amp; Autostart Permission</string>
+    <string name="perm_battery_desc">To ensure playback events and recommendation transitions are never interrupted by the OS, allow background activity.</string>
+    <string name="perm_battery_button">Allow Background Running</string>
+    <string name="event_feed_header">Live Telemetry Events (%d)</string>
+    <string name="clear_log">Clear Log</string>
+</resources>
