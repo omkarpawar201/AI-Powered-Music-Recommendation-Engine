@@ -3,7 +3,7 @@
 [![Android](https://img.shields.io/badge/Platform-Android%20API%2026%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Language-Kotlin-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
-[![Database](https://img.shields.io/badge/Database-Room%20(SQLite)-003B57?logo=sqlite&logoColor=white)](https://developer.android.com/training/data-storage/room)
+[![Database](<https://img.shields.io/badge/Database-Room%20(SQLite)-003B57?logo=sqlite&logoColor=white>)](https://developer.android.com/training/data-storage/room)
 [![Gemini AI](https://img.shields.io/badge/AI-Google%20Gemini%20API-8E75B2?logo=google&logoColor=white)](https://ai.google.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -50,6 +50,7 @@ Instead, it runs natively on Android as an intelligent **observation, learning, 
 ```
 
 The system continuously answers:
+
 > **"Given the song I am listening to right now, what is the best next song to play for me?"**
 
 ---
@@ -103,7 +104,7 @@ Target Music Player Playback
 - **Markov Transition Graph ($A \to B$)**: Learns which songs flow naturally after one another for your unique musical taste.
 - **Exponential Half-Life Skip Penalty**: Single skips decay over time ($t_{1/2} = 4\text{h}$):
   $$P(t) = P_0 \cdot \left(\frac{1}{2}\right)^{\frac{t}{t_{1/2}}}$$
-  A liked song that was skipped once is suppressed *temporarily*, not erased from long-term memory.
+  A liked song that was skipped once is suppressed _temporarily_, not erased from long-term memory.
 - **Gemini AI Re-Ranking**: Evaluates acoustic flow, tempo, and vibe for top candidate tracks.
 - **100% Privacy & Local Storage**: All listening data is persisted locally in an on-device Android Room database.
 
@@ -141,27 +142,17 @@ AI-Powered-Music-Recommendation-Engine/
 
 ---
 
-## 🚀 Development Roadmap
-
-| Phase | Description | Status |
-|---|---|---|
-| **Phase 1** | **Android MediaSession Controller & Telemetry** (Active observer, position extrapolator, event classifier, `TransportControls`, POC tester UI) | **Completed & Verified ✅** |
-| **Phase 2** | **Personal Music Database (Room DB)** (`TrackEntity`, `PlayEventEntity`, `TransitionEntity`, `SkipPenaltyEntity`, Half-life decay math) | **In Progress 🔄** |
-| **Phase 3** | **Candidate Generator & Heuristic Engine** (Markov transitions $A \to B$, Multi-factor scoring equation, Catalog expansion) | **Pending ⏳** |
-| **Phase 4** | **Gemini AI Contextual Re-Ranking** (Google GenAI Kotlin SDK, compact context serializer, structured JSON reasoning) | **Pending ⏳** |
-| **Phase 5** | **Autonomous Background Queue** (Lifecycle-safe continuous autoplay service for zero-touch transitions) | **Pending ⏳** |
-
----
-
 ## 🛠️ Getting Started & Local Setup
 
 ### Prerequisites
+
 - **Android Studio** (Koala / Ladybug or newer)
 - **JDK 17** or higher
 - **Android Device or Emulator** running **Android 8.0 (API 26)** or higher
 - **Apple Music** or **YouTube Music** installed on your testing device
 
 ### Build & Run
+
 1. Clone the repository:
    ```bash
    git clone https://github.com/omkarpawar201/AI-Powered-Music-Recommendation-Engine.git
@@ -183,11 +174,11 @@ AI-Powered-Music-Recommendation-Engine/
 
 ## 🔒 Permissions Explained
 
-| Permission | Purpose |
-|---|---|
-| `BIND_NOTIFICATION_LISTENER_SERVICE` | Enables `MediaSessionManager` to discover active media sessions and read track metadata / playback states. |
-| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Ensures continuous background telemetry tracking when the screen is locked or another app is focused. |
-| `INTERNET` | Used for open catalog lookups and Gemini AI re-ranking requests. |
+| Permission                             | Purpose                                                                                                    |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `BIND_NOTIFICATION_LISTENER_SERVICE`   | Enables `MediaSessionManager` to discover active media sessions and read track metadata / playback states. |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Ensures continuous background telemetry tracking when the screen is locked or another app is focused.      |
+| `INTERNET`                             | Used for open catalog lookups and Gemini AI re-ranking requests.                                           |
 
 ---
 
