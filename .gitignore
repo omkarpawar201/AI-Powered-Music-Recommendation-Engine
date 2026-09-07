@@ -1,12 +1,38 @@
-android/*.iml
-android/.gradle
+# Gradle & Build Caches
+.gradle/
+android/.gradle/
+**/build/
+android/build/
+android/app/build/
+android/captures/
+android/.externalNativeBuild/
+android/.cxx/
+
+# Android Local Configs & SDK paths (Contains local machine paths)
+local.properties
+**/local.properties
 android/local.properties
-android/.idea
-android/.DS_Store
-android/build
-android/captures
-android/.externalNativeBuild
-android/.cxx
-android/local.properties
-android/app/build
-Impl_plan/
+
+# IDE & Editor files
+*.iml
+**/*.iml
+.idea/
+android/.idea/
+.DS_Store
+**/.DS_Store
+.vscode/
+
+# Build Output Artifacts & Keystores (Do not commit binaries or secrets)
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+*.keystore
+*.jks
+
+# Log files
+*.log
+
+# Implementation Plans (Uncomment if you want to keep them local and NOT push to GitHub)
+Impl_Plan/
