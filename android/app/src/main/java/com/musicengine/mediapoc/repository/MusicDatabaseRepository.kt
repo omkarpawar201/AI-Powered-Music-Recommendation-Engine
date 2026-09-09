@@ -6,6 +6,7 @@ import com.musicengine.mediapoc.db.entity.PlayEventEntity
 import com.musicengine.mediapoc.db.entity.SkipPenaltyEntity
 import com.musicengine.mediapoc.db.entity.TrackEntity
 import com.musicengine.mediapoc.db.entity.TransitionEntity
+import com.musicengine.mediapoc.model.ScoringMath
 import com.musicengine.mediapoc.model.TelemetryEventType
 import com.musicengine.mediapoc.model.TrackMetadata
 import com.musicengine.mediapoc.model.UserRating
@@ -13,7 +14,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
-import kotlin.math.pow
 
 class MusicDatabaseRepository(
     private val db: MusicEngineDatabase,
@@ -36,11 +36,12 @@ class MusicDatabaseRepository(
         halfLifeHours: Float,
         currentTimestamp: Long = System.currentTimeMillis()
     ): Float {
-        val elapsedMs = (currentTimestamp - skipTimestamp).coerceAtLeast(0L)
-        val elapsedHours = elapsedMs / (1000.0 * 3600.0)
-        val halfLife = halfLifeHours.toDouble().coerceAtLeast(0.1)
-        val decayFactor = (0.5).pow(elapsedHours / halfLife)
-        return (initialPenalty * decayFactor).toFloat()
+        return ScoringMath.effectivePenalty(
+            initialPenalty = initialPenalty,
+            skipTimestamp = skipTimestamp,
+            halfLifeHours = halfLifeHours,
+            currentTimestamp = currentTimestamp
+        )
     }
 
     /**
@@ -54,10 +55,12 @@ class MusicDatabaseRepository(
         lateSkipCount: Int,
         totalTransitions: Int
     ): Float {
-        val rawNumerator = successCount.toDouble() - (1.5 * earlySkipCount) - (0.5 * lateSkipCount)
-        val denominator = totalTransitions.toDouble() + 2.0 // Laplace smoothing (alpha = 2)
-        val score = (rawNumerator / denominator).toFloat()
-        return score.coerceIn(-1.0f, 1.0f)
+        return ScoringMath.transitionScore(
+            successCount = successCount,
+            earlySkipCount = earlySkipCount,
+            lateSkipCount = lateSkipCount,
+            totalTransitions = totalTransitions
+        )
     }
 
     // ─── Track & Library Operations ─────────────────────────────────────────
@@ -70,6 +73,14 @@ class MusicDatabaseRepository(
 
     suspend fun getTrack(trackKey: String): TrackEntity? = withContext(ioDispatcher) {
         trackDao.getTrack(trackKey)
+    }
+
+    /** Batch lookup: avoids the N+1 query pattern during recommendation ranking. */
+    suspend fun getTracksByKeys(keys: List<String>): Map<String, TrackEntity> {
+        if (keys.isEmpty()) return emptyMap()
+        return withContext(ioDispatcher) {
+            trackDao.getTracksByKeys(keys.distinct()).associateBy { it.trackKey }
+        }
     }
 
     suspend fun recordTrackStart(metadata: TrackMetadata): TrackEntity = withContext(ioDispatcher) {
@@ -105,6 +116,7 @@ class MusicDatabaseRepository(
 
     suspend fun incrementCompletion(trackKey: String) = withContext(ioDispatcher) {
         trackDao.incrementCompletionCount(trackKey)
+        skipPenaltyDao.deletePenalty(trackKey)
     }
 
     suspend fun incrementEarlySkip(trackKey: String) = withContext(ioDispatcher) {
@@ -117,6 +129,7 @@ class MusicDatabaseRepository(
 
     suspend fun incrementReplay(trackKey: String) = withContext(ioDispatcher) {
         trackDao.incrementReplayCount(trackKey)
+        skipPenaltyDao.deletePenalty(trackKey)
     }
 
     suspend fun updateUserRating(trackKey: String, rating: UserRating) = withContext(ioDispatcher) {
@@ -190,6 +203,30 @@ class MusicDatabaseRepository(
         transitionDao.upsertTransition(entity)
     }
 
+    suspend fun getTopTransitionsFrom(fromTrackKey: String, limit: Int = 10): List<TransitionEntity> =
+        withContext(ioDispatcher) {
+            transitionDao.getTopTransitionsFrom(fromTrackKey, limit)
+        }
+
+    suspend fun getTransition(fromKey: String, toKey: String): TransitionEntity? =
+        withContext(ioDispatcher) {
+            transitionDao.getTransition(fromKey, toKey)
+        }
+
+    /** Batch lookup of transitions A -> B for many B keys. Keyed by toTrackKey. */
+    suspend fun getTransitionsFromTo(fromKey: String, toKeys: List<String>): Map<String, TransitionEntity> {
+        if (toKeys.isEmpty()) return emptyMap()
+        return withContext(ioDispatcher) {
+            transitionDao.getTransitionsFromTo(fromKey, toKeys.distinct()).associateBy { it.toTrackKey }
+        }
+    }
+
+    suspend fun getRecentEvents(limit: Int = 15): List<PlayEventEntity> =
+        withContext(ioDispatcher) {
+            playEventDao.getRecentEvents(limit)
+        }
+
+
     // ─── Skip Penalty Operations ────────────────────────────────────────────
 
     fun getAllPenaltiesFlow(): Flow<List<SkipPenaltyEntity>> =
@@ -221,6 +258,29 @@ class MusicDatabaseRepository(
             0.0f
         } else {
             effective
+        }
+    }
+
+    /**
+     * Batch lookup of effective skip penalties for many tracks (non-mutating).
+     * Expired rows (effective < 1.0) are reported as 0.0 but not deleted here;
+     * use [cleanupExpiredPenalties] for garbage collection. This mirrors the
+     * semantics of [getEffectivePenaltyForTrack] without the N+1 pattern.
+     */
+    suspend fun getEffectivePenaltiesByKeys(keys: List<String>): Map<String, Float> {
+        if (keys.isEmpty()) return emptyMap()
+        return withContext(ioDispatcher) {
+            val records = skipPenaltyDao.getPenaltiesByKeys(keys.distinct())
+            val now = System.currentTimeMillis()
+            records.associate { penalty ->
+                val effective = calculateEffectivePenalty(
+                    initialPenalty = penalty.initialPenalty,
+                    skipTimestamp = penalty.skipTimestamp,
+                    halfLifeHours = penalty.halfLifeHours,
+                    currentTimestamp = now
+                )
+                penalty.trackKey to (if (effective < 1.0f) 0.0f else effective)
+            }
         }
     }
 

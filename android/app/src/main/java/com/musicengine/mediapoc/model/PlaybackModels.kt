@@ -43,6 +43,7 @@ data class TrackMetadata(
     val artist: String = "Unknown Artist",
     val album: String = "Unknown Album",
     val durationMs: Long = 0L,
+    val genre: String = "",
     val artBitmap: Bitmap? = null,
     val artUri: Uri? = null,
     val mediaId: String? = null,

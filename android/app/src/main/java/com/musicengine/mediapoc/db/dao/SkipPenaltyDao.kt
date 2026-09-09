@@ -15,6 +15,9 @@ interface SkipPenaltyDao {
     @Query("SELECT * FROM skip_penalties WHERE trackKey = :trackKey LIMIT 1")
     suspend fun getPenalty(trackKey: String): SkipPenaltyEntity?
 
+    @Query("SELECT * FROM skip_penalties WHERE trackKey IN (:keys)")
+    suspend fun getPenaltiesByKeys(keys: List<String>): List<SkipPenaltyEntity>
+
     @Query("SELECT * FROM skip_penalties ORDER BY skipTimestamp DESC")
     suspend fun getAllPenalties(): List<SkipPenaltyEntity>
 

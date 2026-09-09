@@ -16,6 +16,9 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE trackKey = :trackKey LIMIT 1")
     suspend fun getTrack(trackKey: String): TrackEntity?
 
+    @Query("SELECT * FROM tracks WHERE trackKey IN (:keys)")
+    suspend fun getTracksByKeys(keys: List<String>): List<TrackEntity>
+
     @Query("SELECT * FROM tracks ORDER BY lastPlayedAt DESC")
     fun getAllTracksFlow(): Flow<List<TrackEntity>>
 

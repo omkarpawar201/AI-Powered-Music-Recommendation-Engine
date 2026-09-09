@@ -22,6 +22,10 @@ import com.musicengine.mediapoc.db.entity.SkipPenaltyEntity
 import com.musicengine.mediapoc.db.entity.TrackEntity
 import com.musicengine.mediapoc.db.entity.TransitionEntity
 import com.musicengine.mediapoc.repository.MusicDatabaseRepository
+import android.util.Log
+import com.musicengine.mediapoc.model.CandidateTrack
+import com.musicengine.mediapoc.model.RecommendationResult
+import com.musicengine.mediapoc.recommendation.RecommendationEngine
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -67,6 +71,50 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             halfLifeHours = penalty.halfLifeHours
         )
     }
+
+    private val recommendationEngine = RecommendationEngine.getInstance(application)
+
+    private val _recommendationResult = MutableStateFlow<RecommendationResult?>(null)
+    val recommendationResult: StateFlow<RecommendationResult?> = _recommendationResult.asStateFlow()
+
+    private val _isRecommending = MutableStateFlow(false)
+    val isRecommending: StateFlow<Boolean> = _isRecommending.asStateFlow()
+
+    private val _recommendationError = MutableStateFlow<String?>(null)
+    val recommendationError: StateFlow<String?> = _recommendationError.asStateFlow()
+
+    fun generateRecommendations() {
+        val current = nowPlaying.value ?: return
+        viewModelScope.launch {
+            _isRecommending.value = true
+            _recommendationError.value = null
+            try {
+                val result = recommendationEngine.getRecommendations(current, limit = 15)
+                if (result.rankedCandidates.isEmpty()) {
+                    _recommendationResult.value = null
+                    _recommendationError.value = "No recommendations found. Keep listening to build up your library, then try again."
+                } else {
+                    _recommendationResult.value = result
+                }
+            } catch (e: Exception) {
+                Log.e("PlayerViewModel", "Recommendation error: ${e.message}", e)
+                _recommendationResult.value = null
+                _recommendationError.value = "Could not generate recommendations. ${e.message ?: "Unknown error"}"
+            } finally {
+                _isRecommending.value = false
+            }
+        }
+    }
+
+    fun clearRecommendationError() {
+        _recommendationError.value = null
+        _recommendationResult.value = null
+    }
+
+    fun playCandidate(candidate: CandidateTrack): Boolean {
+        return recommendationEngine.playCandidate(candidate)
+    }
+
 
     fun refreshPermissions() {
         _isMediaPermissionGranted.value = checkNotificationListenerPermission()

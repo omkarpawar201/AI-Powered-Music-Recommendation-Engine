@@ -26,8 +26,7 @@ import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -375,7 +374,7 @@ fun PlaybackControlPanel(
                     colors = ButtonDefaults.buttonColors(containerColor = CardBorder),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("2. Open Search in $selectedTargetApp (Deep-Link)", fontSize = 12.sp)
                 }
@@ -406,7 +405,7 @@ fun PlaybackControlPanel(
 private fun getPackageForSelection(selection: String): String? {
     return when (selection) {
         "Apple Music" -> "com.apple.android.music"
-        "YouTube Music" -> "app.morphe.android.apps.youtube.music"
+        "YouTube Music" -> "com.google.android.apps.youtube.music"
         "Spotify" -> "com.spotify.music"
         else -> null
     }
@@ -418,35 +417,56 @@ private fun launchAppSearchIntent(
     targetPackage: String,
     onResult: (String) -> Unit
 ) {
+    val intent = buildSearchIntent(query, targetPackage)
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
-        val intent = when {
-            targetPackage.contains("apple", ignoreCase = true) -> {
-                Intent(Intent.ACTION_VIEW, Uri.parse("https://music.apple.com/search?term=${Uri.encode(query)}")).apply {
-                    setPackage(targetPackage)
-                }
-            }
-            targetPackage.contains("youtube", ignoreCase = true) -> {
-                Intent(Intent.ACTION_VIEW, Uri.parse("https://music.youtube.com/search?q=${Uri.encode(query)}")).apply {
-                    setPackage(targetPackage)
-                }
-            }
-            targetPackage.contains("spotify", ignoreCase = true) -> {
-                Intent(Intent.ACTION_VIEW, Uri.parse("spotify:search:${Uri.encode(query)}")).apply {
-                    setPackage(targetPackage)
-                }
-            }
-            else -> {
-                Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
-                    putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Media.ENTRY_CONTENT_TYPE)
-                    putExtra(MediaStore.EXTRA_MEDIA_TITLE, query)
-                }
-            }
-        }
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
         val appName = targetPackage.substringAfterLast('.').replaceFirstChar { it.uppercase() }
         onResult("✅ Launched $appName with search for: \"$query\"")
     } catch (e: Exception) {
+        // YouTube Music official client may be absent; fall back to alternate clients,
+        // then to a generic browser deep link so search still works.
+        if (targetPackage.contains("youtube", ignoreCase = true)) {
+            val fallbacks = listOf(
+                "app.morphe.android.apps.youtube.music",
+                "app.revanced.android.apps.youtube.music"
+            )
+            for (fallback in fallbacks) {
+                try {
+                    val retryIntent = buildSearchIntent(query, fallback)
+                    retryIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(retryIntent)
+                    onResult("✅ Launched YouTube Music (alternate client) for: \"$query\"")
+                    return
+                } catch (_: Exception) { /* try next fallback */ }
+            }
+        }
         onResult("❌ Intent error: ${e.message}")
+    }
+}
+
+private fun buildSearchIntent(query: String, targetPackage: String): Intent {
+    return when {
+        targetPackage.contains("apple", ignoreCase = true) -> {
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://music.apple.com/search?term=${Uri.encode(query)}")).apply {
+                setPackage(targetPackage)
+            }
+        }
+        targetPackage.contains("youtube", ignoreCase = true) -> {
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://music.youtube.com/search?q=${Uri.encode(query)}")).apply {
+                setPackage(targetPackage)
+            }
+        }
+        targetPackage.contains("spotify", ignoreCase = true) -> {
+            Intent(Intent.ACTION_VIEW, Uri.parse("spotify:search:${Uri.encode(query)}")).apply {
+                setPackage(targetPackage)
+            }
+        }
+        else -> {
+            Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Media.ENTRY_CONTENT_TYPE)
+                putExtra(MediaStore.EXTRA_MEDIA_TITLE, query)
+            }
+        }
     }
 }

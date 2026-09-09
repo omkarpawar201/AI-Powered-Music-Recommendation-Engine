@@ -41,17 +41,18 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.musicengine.mediapoc.ui.components.LibraryScreen
+import com.musicengine.mediapoc.ui.components.RecommendationScreen
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.musicengine.mediapoc.ui.components.EventLogList
 import com.musicengine.mediapoc.ui.components.NowPlayingCard
@@ -110,7 +111,7 @@ fun MainScreen(viewModel: PlayerViewModel = viewModel()) {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Top Navigation Tab Bar
+            // Top Navigation Tab Bar (3 Tabs)
             TabRow(
                 selectedTabIndex = selectedScreenTab,
                 containerColor = CardBg,
@@ -127,7 +128,7 @@ fun MainScreen(viewModel: PlayerViewModel = viewModel()) {
                     onClick = { selectedScreenTab = 0 },
                     text = {
                         Text(
-                            text = "Now Playing & POC",
+                            text = "Now Playing",
                             fontWeight = if (selectedScreenTab == 0) FontWeight.Bold else FontWeight.Normal,
                             color = if (selectedScreenTab == 0) TextPrimary else TextMuted
                         )
@@ -138,110 +139,128 @@ fun MainScreen(viewModel: PlayerViewModel = viewModel()) {
                     onClick = { selectedScreenTab = 1 },
                     text = {
                         Text(
-                            text = "Personal Library & AI",
+                            text = "Library & Stats",
                             fontWeight = if (selectedScreenTab == 1) FontWeight.Bold else FontWeight.Normal,
                             color = if (selectedScreenTab == 1) TextPrimary else TextMuted
                         )
                     }
                 )
+                Tab(
+                    selected = selectedScreenTab == 2,
+                    onClick = { selectedScreenTab = 2 },
+                    text = {
+                        Text(
+                            text = "AI Recs",
+                            fontWeight = if (selectedScreenTab == 2) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selectedScreenTab == 2) TextPrimary else TextMuted
+                        )
+                    }
+                )
             }
 
-            if (selectedScreenTab == 0) {
-                // Existing POC 1 & POC 2 Controls
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    // Header Status Bar
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+            when (selectedScreenTab) {
+                0 -> {
+                    // Existing POC 1 & POC 2 Controls
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        Column {
-                            Text(
-                                text = "Music Recommendation POC",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isServiceConnected) StatusPlaying else TextMuted)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
+                        // Header Status Bar
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
                                 Text(
-                                    text = if (isServiceConnected) "Active: $activeApp" else "Service Disconnected",
-                                    fontSize = 12.sp,
-                                    color = if (isServiceConnected) StatusPlaying else TextMuted
+                                    text = "Music Recommendation POC",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
                                 )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isServiceConnected) StatusPlaying else TextMuted)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isServiceConnected) "Active: $activeApp" else "Service Disconnected",
+                                        fontSize = 12.sp,
+                                        color = if (isServiceConnected) StatusPlaying else TextMuted
+                                    )
+                                }
+                            }
+
+                            Row {
+                                IconButton(onClick = { viewModel.refreshSessions() }) {
+                                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh", tint = AccentPink)
+                                }
+                                IconButton(onClick = { viewModel.clearEventLog() }) {
+                                    Icon(Icons.Filled.Delete, contentDescription = "Clear Logs", tint = TextMuted)
+                                }
                             }
                         }
 
-                        Row {
-                            IconButton(onClick = { viewModel.refreshSessions() }) {
-                                Icon(Icons.Filled.Refresh, contentDescription = "Refresh", tint = AccentPink)
-                            }
-                            IconButton(onClick = { viewModel.clearEventLog() }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Clear Logs", tint = TextMuted)
-                            }
+                        // Permission Warnings if needed
+                        if (!isMediaPermissionGranted) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            PermissionRequestCard(
+                                title = stringResource(R.string.perm_media_title),
+                                description = stringResource(R.string.perm_media_desc),
+                                buttonText = stringResource(R.string.perm_media_button),
+                                icon = Icons.Default.Settings,
+                                onGrantClick = { viewModel.openNotificationListenerSettings() }
+                            )
                         }
-                    }
 
-                    // Permission Warnings if needed
-                    if (!isMediaPermissionGranted) {
+                        if (isBatteryOptimized) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            PermissionRequestCard(
+                                title = stringResource(R.string.perm_battery_title),
+                                description = stringResource(R.string.perm_battery_desc),
+                                buttonText = stringResource(R.string.perm_battery_button),
+                                icon = Icons.Default.BatteryAlert,
+                                onGrantClick = { viewModel.requestBatteryOptimizationExemption() }
+                            )
+                        }
+
                         Spacer(modifier = Modifier.height(8.dp))
-                        PermissionRequestCard(
-                            title = stringResource(R.string.perm_media_title),
-                            description = stringResource(R.string.perm_media_desc),
-                            buttonText = stringResource(R.string.perm_media_button),
-                            icon = Icons.Default.Settings,
-                            onGrantClick = { viewModel.openNotificationListenerSettings() }
+                        NowPlayingCard(
+                            track = nowPlaying,
+                            playbackState = playbackState,
+                            activeAppName = activeApp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        PlaybackControlPanel(
+                            playbackState = playbackState,
+                            activeAppName = activeApp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Live Telemetry Feed (${events.size})",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        EventLogList(
+                            events = events,
+                            modifier = Modifier.weight(1f)
                         )
                     }
-
-                    if (isBatteryOptimized) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        PermissionRequestCard(
-                            title = stringResource(R.string.perm_battery_title),
-                            description = stringResource(R.string.perm_battery_desc),
-                            buttonText = stringResource(R.string.perm_battery_button),
-                            icon = Icons.Default.BatteryAlert,
-                            onGrantClick = { viewModel.requestBatteryOptimizationExemption() }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    NowPlayingCard(
-                        track = nowPlaying,
-                        playbackState = playbackState,
-                        activeAppName = activeApp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    PlaybackControlPanel(
-                        playbackState = playbackState,
-                        activeAppName = activeApp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Live Telemetry Feed (${events.size})",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    EventLogList(
-                        events = events,
-                        modifier = Modifier.weight(1f)
-                    )
                 }
-            } else {
-                // Personal Library & Transitions Screen
-                LibraryScreen(viewModel = viewModel)
+                1 -> {
+                    // Personal Library & Transitions Screen
+                    LibraryScreen(viewModel = viewModel)
+                }
+                2 -> {
+                    // Multi-Tier Recommendation Engine & Playground
+                    RecommendationScreen(viewModel = viewModel)
+                }
             }
         }
     }

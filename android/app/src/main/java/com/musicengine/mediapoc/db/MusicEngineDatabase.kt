@@ -43,6 +43,9 @@ abstract class MusicEngineDatabase : RoomDatabase() {
                     MusicEngineDatabase::class.java,
                     "music_engine_db"
                 )
+                    // POC safety net: silently drops data on schema changes.
+                    // Before shipping, replace with explicit Migration objects per schema bump
+                    // and set exportSchema = true to track the schema history.
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

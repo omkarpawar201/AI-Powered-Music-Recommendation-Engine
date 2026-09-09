@@ -48,6 +48,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
     private var accumulatedPlayTimeMs: Long = 0L
     private var lastPlayTimestamp: Long = 0L
     private var lastPositionMs: Long = 0L
+    private var maxObservedPositionMs: Long = 0L
     private var previousCompletedTrackKey: String? = null
 
     companion object {
@@ -321,6 +322,10 @@ class MediaNotificationListenerService : NotificationListenerService() {
         stopPositionTicker()
         activeController?.unregisterCallback(controllerCallback)
         activeController = null
+        // Always remove the session listener on disconnect (reconnect re-adds it)
+        try {
+            mediaSessionManager?.removeOnActiveSessionsChangedListener(sessionsChangedListener)
+        } catch (_: Exception) {}
     }
 
     override fun onDestroy() {
@@ -427,6 +432,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
 
         val album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: "Unknown Album"
         val duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION).coerceAtLeast(0L)
+        val genre = metadata.getString(MediaMetadata.METADATA_KEY_GENRE) ?: ""
         val artBitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
         val artUriStr = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
@@ -441,6 +447,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
             artist = artist,
             album = album,
             durationMs = duration,
+            genre = genre,
             artBitmap = artBitmap,
             artUri = artUri,
             mediaId = mediaId,
@@ -467,17 +474,19 @@ class MediaNotificationListenerService : NotificationListenerService() {
         if (state == null) return
         val prev = lastReportedState
         lastReportedState = state
+        val now = SystemClock.elapsedRealtime()
 
-        // Track play / pause / seek events
+        // 1. Accurately accumulate elapsed playback time whenever we were previously playing
+        if (prev?.state == PlaybackState.STATE_PLAYING && lastPlayTimestamp > 0L) {
+            val delta = (now - lastPlayTimestamp).coerceAtLeast(0L)
+            accumulatedPlayTimeMs += delta
+        }
+
+        // 2. State transition telemetry & seek detection
         if (prev != null && currentTrack != null) {
-            val now = SystemClock.elapsedRealtime()
-
-            // State changes
             if (prev.state != PlaybackState.STATE_PLAYING && state.state == PlaybackState.STATE_PLAYING) {
-                lastPlayTimestamp = now
                 emitTelemetry(TelemetryEventType.RESUMED, "Resumed playback at ${formatTime(state.position)}")
             } else if (prev.state == PlaybackState.STATE_PLAYING && state.state != PlaybackState.STATE_PLAYING) {
-                accumulatedPlayTimeMs += (now - lastPlayTimestamp).coerceAtLeast(0L)
                 emitTelemetry(TelemetryEventType.PAUSED, "Paused playback at ${formatTime(state.position)}")
             }
 
@@ -494,10 +503,19 @@ class MediaNotificationListenerService : NotificationListenerService() {
             }
         }
 
+        // 3. Update play timestamp and positions
+        lastPlayTimestamp = if (state.state == PlaybackState.STATE_PLAYING) now else 0L
         lastPositionMs = state.position
-        if (state.state == PlaybackState.STATE_PLAYING) {
-            lastPlayTimestamp = SystemClock.elapsedRealtime()
+
+        val trackDuration = currentTrack?.durationMs ?: 0L
+        if (trackDuration > 0L && state.position in 1..trackDuration) {
+            if (state.position > maxObservedPositionMs) {
+                maxObservedPositionMs = state.position
+            }
+        } else if (trackDuration == 0L && state.position > maxObservedPositionMs) {
+            maxObservedPositionMs = state.position
         }
+
         updatePlaybackStateSnapshot(state)
     }
 
@@ -505,12 +523,28 @@ class MediaNotificationListenerService : NotificationListenerService() {
         val now = SystemClock.elapsedRealtime()
         if (lastPlayTimestamp > 0L) {
             accumulatedPlayTimeMs += (now - lastPlayTimestamp).coerceAtLeast(0L)
+            lastPlayTimestamp = 0L
         }
 
-                if (oldTrack != null && oldTrack.durationMs > 0L) {
-            val ratio = (accumulatedPlayTimeMs.toFloat() / oldTrack.durationMs.toFloat()).coerceAtLeast(0f)
-            val completionPct = (ratio * 100f).coerceAtMost(100f)
+        if (oldTrack != null) {
+            val duration = oldTrack.durationMs
+            val timeRatio = if (duration > 0L) (accumulatedPlayTimeMs.toFloat() / duration.toFloat()) else 0f
+            val posRatio = if (duration > 0L) (maxObservedPositionMs.toFloat() / duration.toFloat()) else 0f
+            val effectiveRatio = maxOf(timeRatio, posRatio).coerceAtLeast(0f)
+            val completionPct = (effectiveRatio * 100f).coerceAtMost(100f)
             val prevKey = lastTrackKey
+
+            // Natural completion criteria:
+            // 1. Position reached within 10s of duration or >= 85% of track
+            // 2. OR Total listened time >= 80% of track
+            // 3. OR listened >= 45s if track duration is unknown (0L)
+            val isNaturalCompletion = if (duration > 0L) {
+                maxObservedPositionMs >= (duration - 10_000L).coerceAtLeast(0L) ||
+                effectiveRatio >= 0.85f ||
+                accumulatedPlayTimeMs >= (duration * 0.80f).toLong()
+            } else {
+                accumulatedPlayTimeMs >= 45_000L
+            }
 
             // Replay detection
             if (newTrack.trackKey == previousCompletedTrackKey) {
@@ -527,7 +561,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
                         trackKey = oldTrack.trackKey,
                         startedAt = trackStartRealtime,
                         durationListenedMs = accumulatedPlayTimeMs,
-                        completionRatio = ratio,
+                        completionRatio = effectiveRatio,
                         eventType = TelemetryEventType.REPLAY,
                         previousTrackKey = prevKey
                     )
@@ -535,7 +569,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
                         repository?.recordTransitionEvent(prev, newTrack.trackKey, isSuccess = true, isEarlySkip = false, isLateSkip = false)
                     }
                 }
-            } else if (ratio >= 0.90f || lastPositionMs >= (oldTrack.durationMs - 6000L)) {
+            } else if (isNaturalCompletion) {
                 previousCompletedTrackKey = oldTrack.trackKey
                 emitTelemetry(
                     TelemetryEventType.NATURAL_COMPLETION,
@@ -550,7 +584,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
                         trackKey = oldTrack.trackKey,
                         startedAt = trackStartRealtime,
                         durationListenedMs = accumulatedPlayTimeMs,
-                        completionRatio = ratio,
+                        completionRatio = effectiveRatio,
                         eventType = TelemetryEventType.NATURAL_COMPLETION,
                         previousTrackKey = prevKey
                     )
@@ -558,7 +592,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
                         repository?.recordTransitionEvent(prev, oldTrack.trackKey, isSuccess = true, isEarlySkip = false, isLateSkip = false)
                     }
                 }
-            } else if (accumulatedPlayTimeMs < 15_000L) {
+            } else if (accumulatedPlayTimeMs < 20_000L && maxObservedPositionMs < 20_000L) {
                 emitTelemetry(
                     TelemetryEventType.SKIP_EARLY,
                     "Early skip on ${oldTrack.title} after only ${formatTime(accumulatedPlayTimeMs)} (${String.format("%.1f", completionPct)}%)",
@@ -573,7 +607,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
                         trackKey = oldTrack.trackKey,
                         startedAt = trackStartRealtime,
                         durationListenedMs = accumulatedPlayTimeMs,
-                        completionRatio = ratio,
+                        completionRatio = effectiveRatio,
                         eventType = TelemetryEventType.SKIP_EARLY,
                         previousTrackKey = prevKey
                     )
@@ -596,7 +630,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
                         trackKey = oldTrack.trackKey,
                         startedAt = trackStartRealtime,
                         durationListenedMs = accumulatedPlayTimeMs,
-                        completionRatio = ratio,
+                        completionRatio = effectiveRatio,
                         eventType = TelemetryEventType.SKIP_LATE,
                         previousTrackKey = prevKey
                     )
@@ -612,6 +646,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
         accumulatedPlayTimeMs = 0L
         lastPlayTimestamp = if (lastReportedState?.state == PlaybackState.STATE_PLAYING) now else 0L
         lastPositionMs = 0L
+        maxObservedPositionMs = 0L
 
         emitTelemetry(
             TelemetryEventType.TRACK_STARTED,
@@ -644,7 +679,18 @@ class MediaNotificationListenerService : NotificationListenerService() {
         tickerJob?.cancel()
         tickerJob = serviceScope.launch {
             while (isActive) {
-                activeController?.playbackState?.let { updatePlaybackStateSnapshot(it) }
+                activeController?.playbackState?.let { state ->
+                    updatePlaybackStateSnapshot(state)
+                    val duration = currentTrack?.durationMs ?: 0L
+                    if (state.state == PlaybackState.STATE_PLAYING) {
+                        val delta = SystemClock.elapsedRealtime() - state.lastPositionUpdateTime
+                        val livePos = (state.position + (delta * state.playbackSpeed).toLong())
+                            .coerceIn(0L, if (duration > 0) duration else Long.MAX_VALUE)
+                        if (livePos > maxObservedPositionMs) {
+                            maxObservedPositionMs = livePos
+                        }
+                    }
+                }
                 delay(500)
             }
         }
