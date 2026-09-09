@@ -33,6 +33,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.musicengine.mediapoc.ui.components.LibraryScreen
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,6 +88,8 @@ fun MainScreen(viewModel: PlayerViewModel = viewModel()) {
     val activeApp by viewModel.activeApp.collectAsState()
     val isServiceConnected by viewModel.isServiceConnected.collectAsState()
 
+    var selectedScreenTab by remember { mutableIntStateOf(0) }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -99,142 +109,140 @@ fun MainScreen(viewModel: PlayerViewModel = viewModel()) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 18.dp, vertical = 14.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = stringResource(R.string.app_title),
-                        color = TextPrimary,
-                        fontSize = 21.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = stringResource(R.string.app_subtitle),
-                        color = TextSecondary,
-                        fontSize = 12.sp
+            // Top Navigation Tab Bar
+            TabRow(
+                selectedTabIndex = selectedScreenTab,
+                containerColor = CardBg,
+                contentColor = AccentPink,
+                indicator = { tabPositions ->
+                    TabRowDefaults.SecondaryIndicator(
+                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedScreenTab]),
+                        color = AccentPink
                     )
                 }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = { viewModel.refreshSessions() },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = stringResource(R.string.refresh_sessions),
-                            tint = TextSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(CardBg)
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(if (isServiceConnected && isMediaPermissionGranted) StatusPlaying else AccentPink)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
+            ) {
+                Tab(
+                    selected = selectedScreenTab == 0,
+                    onClick = { selectedScreenTab = 0 },
+                    text = {
                         Text(
-                            text = when {
-                                isServiceConnected && isMediaPermissionGranted -> stringResource(R.string.status_active)
-                                !isMediaPermissionGranted -> stringResource(R.string.status_no_permission)
-                                else -> stringResource(R.string.status_waiting)
-                            },
-                            color = TextPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
+                            text = "Now Playing & POC",
+                            fontWeight = if (selectedScreenTab == 0) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selectedScreenTab == 0) TextPrimary else TextMuted
                         )
                     }
-                }
+                )
+                Tab(
+                    selected = selectedScreenTab == 1,
+                    onClick = { selectedScreenTab = 1 },
+                    text = {
+                        Text(
+                            text = "Personal Library & AI",
+                            fontWeight = if (selectedScreenTab == 1) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selectedScreenTab == 1) TextPrimary else TextMuted
+                        )
+                    }
+                )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            if (!isMediaPermissionGranted) {
-                PermissionRequestCard(
-                    title = stringResource(R.string.perm_media_title),
-                    description = stringResource(R.string.perm_media_desc),
-                    buttonText = stringResource(R.string.perm_media_button),
-                    icon = Icons.Default.Settings,
-                    onGrantClick = { viewModel.openNotificationListenerSettings() }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            if (isBatteryOptimized) {
-                PermissionRequestCard(
-                    title = stringResource(R.string.perm_battery_title),
-                    description = stringResource(R.string.perm_battery_desc),
-                    buttonText = stringResource(R.string.perm_battery_button),
-                    icon = Icons.Default.BatteryAlert,
-                    onGrantClick = { viewModel.requestBatteryOptimizationExemption() }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            NowPlayingCard(
-                track = nowPlaying,
-                playbackState = playbackState,
-                activeAppName = activeApp
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            PlaybackControlPanel(
-                playbackState = playbackState,
-                activeAppName = activeApp
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.event_feed_header, events.size),
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                if (events.isNotEmpty()) {
-                    IconButton(
-                        onClick = { viewModel.clearEventLog() },
-                        modifier = Modifier.size(30.dp)
+            if (selectedScreenTab == 0) {
+                // Existing POC 1 & POC 2 Controls
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    // Header Status Bar
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = stringResource(R.string.clear_log),
-                            tint = TextMuted,
-                            modifier = Modifier.size(17.dp)
+                        Column {
+                            Text(
+                                text = "Music Recommendation POC",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isServiceConnected) StatusPlaying else TextMuted)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (isServiceConnected) "Active: $activeApp" else "Service Disconnected",
+                                    fontSize = 12.sp,
+                                    color = if (isServiceConnected) StatusPlaying else TextMuted
+                                )
+                            }
+                        }
+
+                        Row {
+                            IconButton(onClick = { viewModel.refreshSessions() }) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Refresh", tint = AccentPink)
+                            }
+                            IconButton(onClick = { viewModel.clearEventLog() }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Clear Logs", tint = TextMuted)
+                            }
+                        }
+                    }
+
+                    // Permission Warnings if needed
+                    if (!isMediaPermissionGranted) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        PermissionRequestCard(
+                            title = stringResource(R.string.perm_media_title),
+                            description = stringResource(R.string.perm_media_desc),
+                            buttonText = stringResource(R.string.perm_media_button),
+                            icon = Icons.Default.Settings,
+                            onGrantClick = { viewModel.openNotificationListenerSettings() }
                         )
                     }
+
+                    if (isBatteryOptimized) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        PermissionRequestCard(
+                            title = stringResource(R.string.perm_battery_title),
+                            description = stringResource(R.string.perm_battery_desc),
+                            buttonText = stringResource(R.string.perm_battery_button),
+                            icon = Icons.Default.BatteryAlert,
+                            onGrantClick = { viewModel.requestBatteryOptimizationExemption() }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    NowPlayingCard(
+                        track = nowPlaying,
+                        playbackState = playbackState,
+                        activeAppName = activeApp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    PlaybackControlPanel(
+                        playbackState = playbackState,
+                        activeAppName = activeApp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Live Telemetry Feed (${events.size})",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    EventLogList(
+                        events = events,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
+            } else {
+                // Personal Library & Transitions Screen
+                LibraryScreen(viewModel = viewModel)
             }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            EventLogList(
-                events = events,
-                modifier = Modifier.weight(1f)
-            )
         }
     }
 }

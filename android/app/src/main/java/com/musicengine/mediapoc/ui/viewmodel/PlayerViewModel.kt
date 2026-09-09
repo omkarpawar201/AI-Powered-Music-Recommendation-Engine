@@ -18,6 +18,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.musicengine.mediapoc.db.entity.SkipPenaltyEntity
+import com.musicengine.mediapoc.db.entity.TrackEntity
+import com.musicengine.mediapoc.db.entity.TransitionEntity
+import com.musicengine.mediapoc.repository.MusicDatabaseRepository
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -41,6 +45,28 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _isBatteryOptimized = MutableStateFlow(!isIgnoringBatteryOptimizations())
     val isBatteryOptimized: StateFlow<Boolean> = _isBatteryOptimized.asStateFlow()
+
+    private val repository = MusicDatabaseRepository.getInstance(application)
+
+    val topTracks: StateFlow<List<TrackEntity>> = repository.getTopTracksFlow(50)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalTrackCount: StateFlow<Int> = repository.getTotalTrackCountFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val transitions: StateFlow<List<TransitionEntity>> = repository.getAllTransitionsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val activePenalties: StateFlow<List<SkipPenaltyEntity>> = repository.getAllPenaltiesFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun calculateEffectivePenalty(penalty: SkipPenaltyEntity): Float {
+        return repository.calculateEffectivePenalty(
+            initialPenalty = penalty.initialPenalty,
+            skipTimestamp = penalty.skipTimestamp,
+            halfLifeHours = penalty.halfLifeHours
+        )
+    }
 
     fun refreshPermissions() {
         _isMediaPermissionGranted.value = checkNotificationListenerPermission()

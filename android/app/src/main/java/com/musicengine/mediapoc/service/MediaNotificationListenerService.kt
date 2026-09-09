@@ -19,6 +19,7 @@ import com.musicengine.mediapoc.model.TrackMetadata
 import com.musicengine.mediapoc.model.UserRating
 import com.musicengine.mediapoc.model.formatTime
 import kotlinx.coroutines.CoroutineScope
+import com.musicengine.mediapoc.repository.MusicDatabaseRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -35,7 +36,8 @@ class MediaNotificationListenerService : NotificationListenerService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var tickerJob: Job? = null
-
+    private var repository: MusicDatabaseRepository? = null
+    private var lastTrackKey: String? = null
     private var mediaSessionManager: MediaSessionManager? = null
     private var activeController: MediaController? = null
 
@@ -200,6 +202,11 @@ class MediaNotificationListenerService : NotificationListenerService() {
             service.currentTrack = updatedTrack
             _nowPlayingFlow.value = updatedTrack
 
+            service.serviceScope.launch(Dispatchers.IO) {
+                service.repository?.updateUserRating(track.trackKey, newRating)
+            }
+
+
             if (newRating == UserRating.LIKED) {
                 service.emitTelemetry(
                     TelemetryEventType.USER_LIKE,
@@ -233,6 +240,11 @@ class MediaNotificationListenerService : NotificationListenerService() {
             val updatedTrack = track.copy(userRating = newRating)
             service.currentTrack = updatedTrack
             _nowPlayingFlow.value = updatedTrack
+
+            service.serviceScope.launch(Dispatchers.IO) {
+                service.repository?.updateUserRating(track.trackKey, newRating)
+            }
+
 
             if (newRating == UserRating.DISLIKED) {
                 service.emitTelemetry(
@@ -284,6 +296,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
         super.onListenerConnected()
         Log.i(TAG, "NotificationListenerService CONNECTED")
         instance = this
+        repository = MusicDatabaseRepository.getInstance(applicationContext)
         _isServiceConnectedFlow.value = true
 
         mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager
@@ -494,9 +507,10 @@ class MediaNotificationListenerService : NotificationListenerService() {
             accumulatedPlayTimeMs += (now - lastPlayTimestamp).coerceAtLeast(0L)
         }
 
-        if (oldTrack != null && oldTrack.durationMs > 0L) {
+                if (oldTrack != null && oldTrack.durationMs > 0L) {
             val ratio = (accumulatedPlayTimeMs.toFloat() / oldTrack.durationMs.toFloat()).coerceAtLeast(0f)
             val completionPct = (ratio * 100f).coerceAtMost(100f)
+            val prevKey = lastTrackKey
 
             // Replay detection
             if (newTrack.trackKey == previousCompletedTrackKey) {
@@ -507,6 +521,20 @@ class MediaNotificationListenerService : NotificationListenerService() {
                     listenedMs = accumulatedPlayTimeMs,
                     pct = completionPct
                 )
+                serviceScope.launch(Dispatchers.IO) {
+                    repository?.incrementReplay(newTrack.trackKey)
+                    repository?.logPlayEvent(
+                        trackKey = oldTrack.trackKey,
+                        startedAt = trackStartRealtime,
+                        durationListenedMs = accumulatedPlayTimeMs,
+                        completionRatio = ratio,
+                        eventType = TelemetryEventType.REPLAY,
+                        previousTrackKey = prevKey
+                    )
+                    prevKey?.let { prev ->
+                        repository?.recordTransitionEvent(prev, newTrack.trackKey, isSuccess = true, isEarlySkip = false, isLateSkip = false)
+                    }
+                }
             } else if (ratio >= 0.90f || lastPositionMs >= (oldTrack.durationMs - 6000L)) {
                 previousCompletedTrackKey = oldTrack.trackKey
                 emitTelemetry(
@@ -516,6 +544,20 @@ class MediaNotificationListenerService : NotificationListenerService() {
                     listenedMs = accumulatedPlayTimeMs,
                     pct = completionPct
                 )
+                serviceScope.launch(Dispatchers.IO) {
+                    repository?.incrementCompletion(oldTrack.trackKey)
+                    repository?.logPlayEvent(
+                        trackKey = oldTrack.trackKey,
+                        startedAt = trackStartRealtime,
+                        durationListenedMs = accumulatedPlayTimeMs,
+                        completionRatio = ratio,
+                        eventType = TelemetryEventType.NATURAL_COMPLETION,
+                        previousTrackKey = prevKey
+                    )
+                    prevKey?.let { prev ->
+                        repository?.recordTransitionEvent(prev, oldTrack.trackKey, isSuccess = true, isEarlySkip = false, isLateSkip = false)
+                    }
+                }
             } else if (accumulatedPlayTimeMs < 15_000L) {
                 emitTelemetry(
                     TelemetryEventType.SKIP_EARLY,
@@ -524,6 +566,21 @@ class MediaNotificationListenerService : NotificationListenerService() {
                     listenedMs = accumulatedPlayTimeMs,
                     pct = completionPct
                 )
+                serviceScope.launch(Dispatchers.IO) {
+                    repository?.incrementEarlySkip(oldTrack.trackKey)
+                    repository?.applySkipPenalty(oldTrack.trackKey, initialPenalty = 40.0f, halfLifeHours = 4.0f)
+                    repository?.logPlayEvent(
+                        trackKey = oldTrack.trackKey,
+                        startedAt = trackStartRealtime,
+                        durationListenedMs = accumulatedPlayTimeMs,
+                        completionRatio = ratio,
+                        eventType = TelemetryEventType.SKIP_EARLY,
+                        previousTrackKey = prevKey
+                    )
+                    prevKey?.let { prev ->
+                        repository?.recordTransitionEvent(prev, oldTrack.trackKey, isSuccess = false, isEarlySkip = true, isLateSkip = false)
+                    }
+                }
             } else {
                 emitTelemetry(
                     TelemetryEventType.SKIP_LATE,
@@ -532,6 +589,21 @@ class MediaNotificationListenerService : NotificationListenerService() {
                     listenedMs = accumulatedPlayTimeMs,
                     pct = completionPct
                 )
+                serviceScope.launch(Dispatchers.IO) {
+                    repository?.incrementLateSkip(oldTrack.trackKey)
+                    repository?.applySkipPenalty(oldTrack.trackKey, initialPenalty = 15.0f, halfLifeHours = 2.0f)
+                    repository?.logPlayEvent(
+                        trackKey = oldTrack.trackKey,
+                        startedAt = trackStartRealtime,
+                        durationListenedMs = accumulatedPlayTimeMs,
+                        completionRatio = ratio,
+                        eventType = TelemetryEventType.SKIP_LATE,
+                        previousTrackKey = prevKey
+                    )
+                    prevKey?.let { prev ->
+                        repository?.recordTransitionEvent(prev, oldTrack.trackKey, isSuccess = false, isEarlySkip = false, isLateSkip = true)
+                    }
+                }
             }
         }
 
@@ -546,6 +618,17 @@ class MediaNotificationListenerService : NotificationListenerService() {
             "Started: ${newTrack.title} by ${newTrack.artist} (${newTrack.appDisplayName})",
             track = newTrack
         )
+
+        // Upsert new track in Room and restore any existing user rating
+        serviceScope.launch(Dispatchers.IO) {
+            val saved = repository?.recordTrackStart(newTrack)
+            if (saved != null && saved.userRating != UserRating.NONE) {
+                val updated = currentTrack?.copy(userRating = saved.userRating)
+                currentTrack = updated
+                _nowPlayingFlow.value = updated
+            }
+        }
+        lastTrackKey = oldTrack?.trackKey
     }
 
     private fun handleSessionDestroyed() {
