@@ -13,6 +13,7 @@ import com.musicengine.mediapoc.model.UserRating
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 class MusicDatabaseRepository(
@@ -69,10 +70,22 @@ class MusicDatabaseRepository(
 
     fun getTopTracksFlow(limit: Int = 20): Flow<List<TrackEntity>> = trackDao.getTopTracksFlow(limit)
 
+    fun getLikedTracksFlow(): Flow<List<TrackEntity>> = trackDao.getLikedTracksFlow()
+
     fun getTotalTrackCountFlow(): Flow<Int> = trackDao.getTotalTrackCountFlow()
+
+    fun getTotalListeningTimeFlow(): Flow<Long> = playEventDao.getTotalListeningTimeFlow().map { it ?: 0L }
+
+    suspend fun searchTracks(query: String, limit: Int = 30): List<TrackEntity> = withContext(ioDispatcher) {
+        if (query.isBlank()) emptyList() else trackDao.searchTracks(query.trim(), limit)
+    }
 
     suspend fun getTrack(trackKey: String): TrackEntity? = withContext(ioDispatcher) {
         trackDao.getTrack(trackKey)
+    }
+
+    suspend fun updateUserRating(trackKey: String, rating: UserRating) = withContext(ioDispatcher) {
+        trackDao.updateUserRating(trackKey, rating)
     }
 
     /** Batch lookup: avoids the N+1 query pattern during recommendation ranking. */
@@ -132,10 +145,6 @@ class MusicDatabaseRepository(
         skipPenaltyDao.deletePenalty(trackKey)
     }
 
-    suspend fun updateUserRating(trackKey: String, rating: UserRating) = withContext(ioDispatcher) {
-        trackDao.updateUserRating(trackKey, rating)
-    }
-
     // ─── Play Event Logging ─────────────────────────────────────────────────
 
     fun getRecentEventsFlow(limit: Int = 50): Flow<List<PlayEventEntity>> =
@@ -150,17 +159,38 @@ class MusicDatabaseRepository(
         previousTrackKey: String? = null,
         sessionId: String = ""
     ): Long = withContext(ioDispatcher) {
-        playEventDao.insertPlayEvent(
-            PlayEventEntity(
-                trackKey = trackKey,
-                startedAt = startedAt,
-                durationListenedMs = durationListenedMs,
-                completionRatio = completionRatio,
-                eventType = eventType,
-                previousTrackKey = previousTrackKey,
-                sessionId = sessionId
+        try {
+            if (trackDao.getTrack(trackKey) == null) {
+                val title = trackKey.substringAfter("::", "Unknown Track")
+                val artist = trackKey.substringBefore("::", "Unknown Artist")
+                val now = System.currentTimeMillis()
+                trackDao.upsertTrack(
+                    TrackEntity(
+                        trackKey = trackKey,
+                        title = title,
+                        artist = artist,
+                        firstPlayedAt = now,
+                        lastPlayedAt = now,
+                        totalPlays = 1
+                    )
+                )
+            }
+            val validStartedAt = if (startedAt > 1000000000000L) startedAt else System.currentTimeMillis()
+            playEventDao.insertPlayEvent(
+                PlayEventEntity(
+                    trackKey = trackKey,
+                    startedAt = validStartedAt,
+                    durationListenedMs = durationListenedMs,
+                    completionRatio = completionRatio,
+                    eventType = eventType,
+                    previousTrackKey = previousTrackKey,
+                    sessionId = sessionId
+                )
             )
-        )
+        } catch (e: Exception) {
+            android.util.Log.e("MusicDatabaseRepo", "Failed to insert play_event for $trackKey", e)
+            -1L
+        }
     }
 
     // ─── Transitions (A -> B) Operations ────────────────────────────────────

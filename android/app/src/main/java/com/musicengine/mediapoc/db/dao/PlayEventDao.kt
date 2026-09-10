@@ -19,4 +19,7 @@ interface PlayEventDao {
 
     @Query("SELECT * FROM play_events WHERE trackKey = :trackKey ORDER BY startedAt DESC")
     suspend fun getEventsForTrack(trackKey: String): List<PlayEventEntity>
+
+    @Query("SELECT SUM(durationListenedMs) FROM play_events")
+    fun getTotalListeningTimeFlow(): Flow<Long?>
 }

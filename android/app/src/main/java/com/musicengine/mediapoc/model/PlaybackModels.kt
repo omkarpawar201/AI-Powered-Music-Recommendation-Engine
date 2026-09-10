@@ -53,7 +53,7 @@ data class TrackMetadata(
     val userRating: UserRating = UserRating.NONE
 ) {
     val trackKey: String
-        get() = "${title.trim()} - ${artist.trim()}"
+        get() = TrackKeyNormalizer.canonicalKey(title, artist)
 }
 
 data class PlaybackTelemetryState(

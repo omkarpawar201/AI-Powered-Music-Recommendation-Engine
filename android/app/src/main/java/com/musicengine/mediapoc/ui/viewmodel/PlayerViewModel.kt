@@ -11,11 +11,14 @@ import androidx.lifecycle.viewModelScope
 import com.musicengine.mediapoc.model.PlaybackTelemetryState
 import com.musicengine.mediapoc.model.TelemetryEvent
 import com.musicengine.mediapoc.model.TrackMetadata
+import com.musicengine.mediapoc.model.UserRating
 import com.musicengine.mediapoc.service.MediaNotificationListenerService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.musicengine.mediapoc.db.entity.SkipPenaltyEntity
@@ -55,8 +58,33 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     val topTracks: StateFlow<List<TrackEntity>> = repository.getTopTracksFlow(50)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val likedTracks: StateFlow<List<TrackEntity>> = repository.getLikedTracksFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val totalTrackCount: StateFlow<Int> = repository.getTotalTrackCountFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val totalListeningTime: StateFlow<Long> = combine(
+        repository.getTotalListeningTimeFlow(),
+        MediaNotificationListenerService.currentSessionListeningTimeFlow
+    ) { dbTotal, liveSessionMs ->
+        dbTotal + liveSessionMs
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val totalListeningTimeFormatted: StateFlow<String> = totalListeningTime
+        .map { ms ->
+            val totalSecs = ms / 1000
+            val hours = totalSecs / 3600
+            val mins = (totalSecs % 3600) / 60
+            val secs = totalSecs % 60
+            when {
+                hours > 0 -> "${hours}h ${mins}m"
+                mins > 0 -> "${mins}m"
+                secs > 0 -> "${secs}s"
+                else -> "0m"
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "0m")
 
     val transitions: StateFlow<List<TransitionEntity>> = repository.getAllTransitionsFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -73,15 +101,60 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private val recommendationEngine = RecommendationEngine.getInstance(application)
+    private val catalogClient = com.musicengine.mediapoc.network.ITunesCatalogClient.getInstance()
 
     private val _recommendationResult = MutableStateFlow<RecommendationResult?>(null)
     val recommendationResult: StateFlow<RecommendationResult?> = _recommendationResult.asStateFlow()
+
+    val upNextTrack: StateFlow<CandidateTrack?> = _recommendationResult
+        .map { it?.topCandidate?.track }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _isRecommending = MutableStateFlow(false)
     val isRecommending: StateFlow<Boolean> = _isRecommending.asStateFlow()
 
     private val _recommendationError = MutableStateFlow<String?>(null)
     val recommendationError: StateFlow<String?> = _recommendationError.asStateFlow()
+
+    // ─── Unified Search ─────────────────────────────────────────────────────
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _isSearching = MutableStateFlow(false)
+    val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
+
+    private val _searchResults = MutableStateFlow<List<CandidateTrack>>(emptyList())
+    val searchResults: StateFlow<List<CandidateTrack>> = _searchResults.asStateFlow()
+
+    fun onSearchQueryChanged(query: String) {
+        _searchQuery.value = query
+        if (query.isBlank()) {
+            _searchResults.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            _isSearching.value = true
+            try {
+                val localMatches = repository.searchTracks(query).map { entity ->
+                    CandidateTrack(
+                        title = entity.title,
+                        artist = entity.artist,
+                        album = entity.album,
+                        durationMs = entity.durationMs,
+                        artworkUri = entity.artworkUri,
+                        source = com.musicengine.mediapoc.model.CandidateSource.PERSONAL_LIBRARY
+                    )
+                }
+                val catalogMatches = catalogClient.searchRelatedTracks(query, limit = 15)
+                val combined = (localMatches + catalogMatches).distinctBy { it.trackKey }
+                _searchResults.value = combined
+            } catch (e: Exception) {
+                Log.e("PlayerViewModel", "Search error: ${e.message}")
+            } finally {
+                _isSearching.value = false
+            }
+        }
+    }
 
     fun generateRecommendations() {
         val current = nowPlaying.value ?: return
@@ -113,6 +186,39 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun playCandidate(candidate: CandidateTrack): Boolean {
         return recommendationEngine.playCandidate(candidate)
+    }
+
+    fun playTrack(track: TrackEntity): Boolean {
+        return playCandidate(
+            CandidateTrack(
+                title = track.title,
+                artist = track.artist,
+                album = track.album,
+                durationMs = track.durationMs,
+                artworkUri = track.artworkUri,
+                source = com.musicengine.mediapoc.model.CandidateSource.PERSONAL_LIBRARY
+            )
+        )
+    }
+
+    fun rateTrack(rating: UserRating) {
+        val handled = MediaNotificationListenerService.setRating(rating)
+        if (!handled) {
+            val current = nowPlaying.value ?: return
+            viewModelScope.launch {
+                repository.updateUserRating(current.trackKey, rating)
+            }
+        }
+    }
+
+    fun rateSpecificTrack(trackKey: String, rating: UserRating) {
+        if (nowPlaying.value?.trackKey == trackKey) {
+            MediaNotificationListenerService.setRating(rating)
+        } else {
+            viewModelScope.launch {
+                repository.updateUserRating(trackKey, rating)
+            }
+        }
     }
 
 

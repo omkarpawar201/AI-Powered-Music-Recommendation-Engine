@@ -80,6 +80,9 @@ class MediaNotificationListenerService : NotificationListenerService() {
         private val _isServiceConnectedFlow = MutableStateFlow(false)
         val isServiceConnectedFlow: StateFlow<Boolean> = _isServiceConnectedFlow.asStateFlow()
 
+        private val _currentSessionListeningTimeFlow = MutableStateFlow(0L)
+        val currentSessionListeningTimeFlow: StateFlow<Long> = _currentSessionListeningTimeFlow.asStateFlow()
+
         private var instance: MediaNotificationListenerService? = null
 
         fun clearEventLog() {
@@ -190,15 +193,9 @@ class MediaNotificationListenerService : NotificationListenerService() {
             }
         }
 
-        fun toggleLike(): Boolean {
+        fun setRating(newRating: UserRating): Boolean {
             val service = instance ?: return false
             val track = service.currentTrack ?: return false
-            val newRating = if (track.userRating == UserRating.LIKED) {
-                UserRating.NONE
-            } else {
-                UserRating.LIKED
-            }
-
             val updatedTrack = track.copy(userRating = newRating)
             service.currentTrack = updatedTrack
             _nowPlayingFlow.value = updatedTrack
@@ -206,7 +203,6 @@ class MediaNotificationListenerService : NotificationListenerService() {
             service.serviceScope.launch(Dispatchers.IO) {
                 service.repository?.updateUserRating(track.trackKey, newRating)
             }
-
 
             if (newRating == UserRating.LIKED) {
                 service.emitTelemetry(
@@ -220,34 +216,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
                         controller.transportControls.sendCustomAction("Like", null)
                     } catch (_: Exception) {}
                 }
-            } else {
-                service.emitTelemetry(
-                    TelemetryEventType.USER_LIKE,
-                    "Removed Like for \"${track.title}\""
-                )
-            }
-            return true
-        }
-
-        fun toggleDislike(): Boolean {
-            val service = instance ?: return false
-            val track = service.currentTrack ?: return false
-            val newRating = if (track.userRating == UserRating.DISLIKED) {
-                UserRating.NONE
-            } else {
-                UserRating.DISLIKED
-            }
-
-            val updatedTrack = track.copy(userRating = newRating)
-            service.currentTrack = updatedTrack
-            _nowPlayingFlow.value = updatedTrack
-
-            service.serviceScope.launch(Dispatchers.IO) {
-                service.repository?.updateUserRating(track.trackKey, newRating)
-            }
-
-
-            if (newRating == UserRating.DISLIKED) {
+            } else if (newRating == UserRating.DISLIKED) {
                 service.emitTelemetry(
                     TelemetryEventType.USER_DISLIKE,
                     "Disliked: \"${track.title}\" by ${track.artist} (Strong negative signal recorded)"
@@ -259,11 +228,31 @@ class MediaNotificationListenerService : NotificationListenerService() {
                 }
             } else {
                 service.emitTelemetry(
-                    TelemetryEventType.USER_DISLIKE,
-                    "Removed Dislike for \"${track.title}\""
+                    TelemetryEventType.USER_LIKE,
+                    "Removed rating for \"${track.title}\""
                 )
             }
             return true
+        }
+
+        fun toggleLike(): Boolean {
+            val track = instance?.currentTrack ?: return false
+            val newRating = if (track.userRating == UserRating.LIKED) {
+                UserRating.NONE
+            } else {
+                UserRating.LIKED
+            }
+            return setRating(newRating)
+        }
+
+        fun toggleDislike(): Boolean {
+            val track = instance?.currentTrack ?: return false
+            val newRating = if (track.userRating == UserRating.DISLIKED) {
+                UserRating.NONE
+            } else {
+                UserRating.DISLIKED
+            }
+            return setRating(newRating)
         }
 
         fun getActivePackageName(): String {
@@ -317,6 +306,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         Log.i(TAG, "NotificationListenerService DISCONNECTED")
+        flushCurrentTrackPlayTime()
         if (instance == this) instance = null
         _isServiceConnectedFlow.value = false
         stopPositionTicker()
@@ -330,6 +320,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        flushCurrentTrackPlayTime()
         if (instance == this) instance = null
         stopPositionTicker()
         activeController?.unregisterCallback(controllerCallback)
@@ -413,6 +404,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
         _activeAppFlow.value = appName
         Log.i(TAG, "Bound to MediaController: $appName (${controller.packageName})")
 
+        startPositionTicker()
         handleMetadataChanged(controller.metadata)
         handlePlaybackStateChanged(controller.playbackState)
     }
@@ -666,13 +658,44 @@ class MediaNotificationListenerService : NotificationListenerService() {
         lastTrackKey = oldTrack?.trackKey
     }
 
+    private fun flushCurrentTrackPlayTime() {
+        val oldTrack = currentTrack ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (lastPlayTimestamp > 0L) {
+            accumulatedPlayTimeMs += (now - lastPlayTimestamp).coerceAtLeast(0L)
+            lastPlayTimestamp = 0L
+        }
+        val playDuration = accumulatedPlayTimeMs
+        if (playDuration >= 2000L) {
+            val duration = oldTrack.durationMs
+            val ratio = if (duration > 0L) (playDuration.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f
+            val prevKey = lastTrackKey
+            val startRt = trackStartRealtime
+            serviceScope.launch(Dispatchers.IO) {
+                repository?.logPlayEvent(
+                    trackKey = oldTrack.trackKey,
+                    startedAt = startRt,
+                    durationListenedMs = playDuration,
+                    completionRatio = ratio,
+                    eventType = if (ratio >= 0.85f) TelemetryEventType.NATURAL_COMPLETION else TelemetryEventType.PAUSED,
+                    previousTrackKey = prevKey
+                )
+            }
+        }
+        accumulatedPlayTimeMs = 0L
+    }
+
     private fun handleSessionDestroyed() {
         val app = getAppDisplayName(activeController?.packageName ?: "")
         emitTelemetry(TelemetryEventType.PAUSED, "Session destroyed for $app")
+        flushCurrentTrackPlayTime()
+        currentTrack = null
+        _currentSessionListeningTimeFlow.value = 0L
         _nowPlayingFlow.value = null
         _playbackStateFlow.value = PlaybackTelemetryState()
         _activeAppFlow.value = "No Active App"
         activeController = null
+        stopPositionTicker()
     }
 
     private fun startPositionTicker() {
@@ -689,7 +712,15 @@ class MediaNotificationListenerService : NotificationListenerService() {
                         if (livePos > maxObservedPositionMs) {
                             maxObservedPositionMs = livePos
                         }
+
+                        val now = SystemClock.elapsedRealtime()
+                        val liveDelta = if (lastPlayTimestamp > 0L) (now - lastPlayTimestamp).coerceAtLeast(0L) else 0L
+                        _currentSessionListeningTimeFlow.value = accumulatedPlayTimeMs + liveDelta
+                    } else {
+                        _currentSessionListeningTimeFlow.value = accumulatedPlayTimeMs
                     }
+                } ?: run {
+                    _currentSessionListeningTimeFlow.value = 0L
                 }
                 delay(500)
             }
@@ -699,6 +730,7 @@ class MediaNotificationListenerService : NotificationListenerService() {
     private fun stopPositionTicker() {
         tickerJob?.cancel()
         tickerJob = null
+        _currentSessionListeningTimeFlow.value = 0L
     }
 
     private fun updatePlaybackStateSnapshot(state: PlaybackState) {

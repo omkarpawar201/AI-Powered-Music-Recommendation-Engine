@@ -25,6 +25,9 @@ interface TrackDao {
     @Query("SELECT * FROM tracks ORDER BY totalPlays DESC, totalCompletions DESC LIMIT :limit")
     fun getTopTracksFlow(limit: Int = 20): Flow<List<TrackEntity>>
 
+    @Query("SELECT * FROM tracks WHERE userRating = 'LIKED' ORDER BY lastPlayedAt DESC")
+    fun getLikedTracksFlow(): Flow<List<TrackEntity>>
+
     @Query("UPDATE tracks SET userRating = :rating WHERE trackKey = :trackKey")
     suspend fun updateUserRating(trackKey: String, rating: UserRating)
 
@@ -45,4 +48,7 @@ interface TrackDao {
 
     @Query("SELECT COUNT(*) FROM tracks")
     fun getTotalTrackCountFlow(): Flow<Int>
+
+    @Query("SELECT * FROM tracks WHERE title LIKE '%' || :query || '%' OR artist LIKE '%' || :query || '%' ORDER BY totalPlays DESC LIMIT :limit")
+    suspend fun searchTracks(query: String, limit: Int = 30): List<TrackEntity>
 }

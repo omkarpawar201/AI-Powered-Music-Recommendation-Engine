@@ -8,7 +8,8 @@ import androidx.room.Index
     primaryKeys = ["fromTrackKey", "toTrackKey"],
     indices = [
         Index("fromTrackKey"),
-        Index("toTrackKey")
+        Index("toTrackKey"),
+        Index("fromTrackKey", "transitionScore")
     ]
 )
 data class TransitionEntity(

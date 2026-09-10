@@ -3,50 +3,51 @@ package com.musicengine.mediapoc
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BatteryAlert
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.musicengine.mediapoc.ui.components.LibraryScreen
-import com.musicengine.mediapoc.ui.components.RecommendationScreen
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,21 +55,28 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.musicengine.mediapoc.ui.components.EventLogList
-import com.musicengine.mediapoc.ui.components.NowPlayingCard
-import com.musicengine.mediapoc.ui.components.PlaybackControlPanel
+import com.musicengine.mediapoc.ui.components.AmbientBackground
+import com.musicengine.mediapoc.ui.components.LibraryScreen
+import com.musicengine.mediapoc.ui.components.NowPlayingScreen
+import com.musicengine.mediapoc.ui.components.RecommendationScreen
+import com.musicengine.mediapoc.ui.components.SearchScreen
+import com.musicengine.mediapoc.ui.glass.GlassButton
+import com.musicengine.mediapoc.ui.glass.GlassCard
+import com.musicengine.mediapoc.ui.glass.GlassNavigationBar
+import com.musicengine.mediapoc.ui.glass.GlassNavItem
 import com.musicengine.mediapoc.ui.theme.AccentPink
-import com.musicengine.mediapoc.ui.theme.CardBg
-import com.musicengine.mediapoc.ui.theme.DarkBg
+import com.musicengine.mediapoc.ui.theme.GlassSurface
+import com.musicengine.mediapoc.ui.theme.MatchCyan
 import com.musicengine.mediapoc.ui.theme.MediaPOCTheme
-import com.musicengine.mediapoc.ui.theme.StatusPlaying
-import com.musicengine.mediapoc.ui.theme.TextMuted
+import com.musicengine.mediapoc.ui.theme.MetricGold
+import com.musicengine.mediapoc.ui.theme.MetricPurple
 import com.musicengine.mediapoc.ui.theme.TextPrimary
 import com.musicengine.mediapoc.ui.theme.TextSecondary
 import com.musicengine.mediapoc.ui.viewmodel.PlayerViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
             MediaPOCTheme {
@@ -81,13 +89,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(viewModel: PlayerViewModel = viewModel()) {
     val lifecycleOwner = LocalLifecycleOwner.current
-    val isMediaPermissionGranted by viewModel.isMediaPermissionGranted.collectAsState()
-    val isBatteryOptimized by viewModel.isBatteryOptimized.collectAsState()
     val nowPlaying by viewModel.nowPlaying.collectAsState()
-    val playbackState by viewModel.playbackState.collectAsState()
-    val events by viewModel.events.collectAsState()
-    val activeApp by viewModel.activeApp.collectAsState()
-    val isServiceConnected by viewModel.isServiceConnected.collectAsState()
 
     var selectedScreenTab by remember { mutableIntStateOf(0) }
 
@@ -103,166 +105,82 @@ fun MainScreen(viewModel: PlayerViewModel = viewModel()) {
         }
     }
 
-    Scaffold(
-        containerColor = DarkBg
-    ) { innerPadding ->
-        Column(
+    val navItems = remember {
+        listOf(
+            GlassNavItem(
+                icon = Icons.Outlined.Home,
+                selectedIcon = Icons.Filled.Home,
+                label = "Home",
+                accent = AccentPink
+            ),
+            GlassNavItem(
+                icon = Icons.Outlined.LibraryMusic,
+                selectedIcon = Icons.Filled.LibraryMusic,
+                label = "Library",
+                accent = MetricPurple
+            ),
+            GlassNavItem(
+                icon = Icons.Filled.AutoAwesome,
+                label = "AI Recs",
+                accent = MatchCyan
+            ),
+            GlassNavItem(
+                icon = Icons.Outlined.Search,
+                selectedIcon = Icons.Filled.Search,
+                label = "Search",
+                accent = MetricGold
+            )
+        )
+    }
+
+    val artModel = nowPlaying?.let { it.artUri ?: it.artBitmap }
+
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // Fullscreen dynamic ambient artwork backdrop
+        AmbientBackground(
+            artModel = artModel,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Screen content safely inset below status bar and flowing full-bleed behind floating bottom bar
+        AnimatedContent(
+            targetState = selectedScreenTab,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            // Top Navigation Tab Bar (3 Tabs)
-            TabRow(
-                selectedTabIndex = selectedScreenTab,
-                containerColor = CardBg,
-                contentColor = AccentPink,
-                indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedScreenTab]),
-                        color = AccentPink
-                    )
-                }
-            ) {
-                Tab(
-                    selected = selectedScreenTab == 0,
-                    onClick = { selectedScreenTab = 0 },
-                    text = {
-                        Text(
-                            text = "Now Playing",
-                            fontWeight = if (selectedScreenTab == 0) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selectedScreenTab == 0) TextPrimary else TextMuted
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedScreenTab == 1,
-                    onClick = { selectedScreenTab = 1 },
-                    text = {
-                        Text(
-                            text = "Library & Stats",
-                            fontWeight = if (selectedScreenTab == 1) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selectedScreenTab == 1) TextPrimary else TextMuted
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedScreenTab == 2,
-                    onClick = { selectedScreenTab = 2 },
-                    text = {
-                        Text(
-                            text = "AI Recs",
-                            fontWeight = if (selectedScreenTab == 2) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selectedScreenTab == 2) TextPrimary else TextMuted
-                        )
-                    }
-                )
+                .statusBarsPadding(),
+            label = "screen",
+            transitionSpec = {
+                val direction = if (targetState > initialState) 1 else -1
+                (fadeIn(animationSpec = tween(240)) +
+                    slideInHorizontally(animationSpec = spring(dampingRatio = 0.88f, stiffness = 550f)) { 36 * direction } +
+                    scaleIn(initialScale = 0.985f, animationSpec = tween(240))) togetherWith
+                    (fadeOut(animationSpec = tween(160)) +
+                        slideOutHorizontally(animationSpec = tween(160)) { -36 * direction } +
+                        scaleOut(targetScale = 0.985f, animationSpec = tween(160)))
             }
-
-            when (selectedScreenTab) {
-                0 -> {
-                    // Existing POC 1 & POC 2 Controls
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        // Header Status Bar
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Music Recommendation POC",
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary
-                                )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(if (isServiceConnected) StatusPlaying else TextMuted)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = if (isServiceConnected) "Active: $activeApp" else "Service Disconnected",
-                                        fontSize = 12.sp,
-                                        color = if (isServiceConnected) StatusPlaying else TextMuted
-                                    )
-                                }
-                            }
-
-                            Row {
-                                IconButton(onClick = { viewModel.refreshSessions() }) {
-                                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh", tint = AccentPink)
-                                }
-                                IconButton(onClick = { viewModel.clearEventLog() }) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Clear Logs", tint = TextMuted)
-                                }
-                            }
-                        }
-
-                        // Permission Warnings if needed
-                        if (!isMediaPermissionGranted) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            PermissionRequestCard(
-                                title = stringResource(R.string.perm_media_title),
-                                description = stringResource(R.string.perm_media_desc),
-                                buttonText = stringResource(R.string.perm_media_button),
-                                icon = Icons.Default.Settings,
-                                onGrantClick = { viewModel.openNotificationListenerSettings() }
-                            )
-                        }
-
-                        if (isBatteryOptimized) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            PermissionRequestCard(
-                                title = stringResource(R.string.perm_battery_title),
-                                description = stringResource(R.string.perm_battery_desc),
-                                buttonText = stringResource(R.string.perm_battery_button),
-                                icon = Icons.Default.BatteryAlert,
-                                onGrantClick = { viewModel.requestBatteryOptimizationExemption() }
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-                        NowPlayingCard(
-                            track = nowPlaying,
-                            playbackState = playbackState,
-                            activeAppName = activeApp
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        PlaybackControlPanel(
-                            playbackState = playbackState,
-                            activeAppName = activeApp
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Live Telemetry Feed (${events.size})",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        EventLogList(
-                            events = events,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-                1 -> {
-                    // Personal Library & Transitions Screen
-                    LibraryScreen(viewModel = viewModel)
-                }
-                2 -> {
-                    // Multi-Tier Recommendation Engine & Playground
-                    RecommendationScreen(viewModel = viewModel)
-                }
+        ) { tab ->
+            when (tab) {
+                0 -> NowPlayingScreen(viewModel = viewModel)
+                1 -> LibraryScreen(viewModel = viewModel)
+                2 -> RecommendationScreen(viewModel = viewModel)
+                else -> SearchScreen(viewModel = viewModel)
             }
         }
+
+        // Floating Glass Navigation Bar (docked at bottom center, above gesture insets)
+        GlassNavigationBar(
+            items = navItems,
+            selectedIndex = selectedScreenTab,
+            onSelect = { selectedScreenTab = it },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 12.dp)
+        )
     }
 }
 
@@ -274,42 +192,60 @@ fun PermissionRequestCard(
     icon: ImageVector,
     onGrantClick: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(CardBg)
-            .border(1.dp, AccentPink.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-            .padding(14.dp)
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp)
     ) {
-        Column {
-            Text(
-                text = title,
-                color = AccentPink,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = description,
-                color = TextSecondary,
-                fontSize = 12.sp,
-                lineHeight = 15.sp
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Button(
-                onClick = onGrantClick,
-                colors = ButtonDefaults.buttonColors(containerColor = AccentPink),
-                shape = RoundedCornerShape(10.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .background(AccentPink.copy(alpha = 0.14f), androidx.compose.foundation.shape.CircleShape)
+                    .padding(0.dp),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    modifier = Modifier.size(15.dp)
+                    tint = AccentPink,
+                    modifier = Modifier.size(17.dp)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(buttonText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.size(2.dp))
+                Text(
+                    text = description,
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
             }
         }
+        Spacer(modifier = Modifier.size(12.dp))
+        GlassButton(
+            text = buttonText,
+            onClick = onGrantClick,
+            containerColor = AccentPink,
+            contentColor = androidx.compose.ui.graphics.Color.White,
+            accentBorder = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.35f),
+            leadingIcon = {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+        )
     }
 }

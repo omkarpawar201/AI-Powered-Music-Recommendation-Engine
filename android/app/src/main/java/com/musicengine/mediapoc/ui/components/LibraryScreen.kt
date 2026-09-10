@@ -1,10 +1,14 @@
 package com.musicengine.mediapoc.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,41 +21,74 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ThumbDown
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.musicengine.mediapoc.db.entity.SkipPenaltyEntity
 import com.musicengine.mediapoc.db.entity.TrackEntity
 import com.musicengine.mediapoc.db.entity.TransitionEntity
+import com.musicengine.mediapoc.model.CandidateTrack
 import com.musicengine.mediapoc.model.UserRating
+import com.musicengine.mediapoc.ui.glass.GlassDropdownMenu
+import com.musicengine.mediapoc.ui.glass.GlassDropdownMenuItem
+import com.musicengine.mediapoc.ui.glass.DualArtworkTransitionCard
+import com.musicengine.mediapoc.ui.glass.GlassCard
+import com.musicengine.mediapoc.ui.glass.GlassIconButton
+import com.musicengine.mediapoc.ui.glass.GlassSegmentedControl
+import com.musicengine.mediapoc.ui.glass.GlassShapePill
+import com.musicengine.mediapoc.ui.glass.MetricTile
 import com.musicengine.mediapoc.ui.theme.AccentPink
-import com.musicengine.mediapoc.ui.theme.StatusReplay
-import com.musicengine.mediapoc.ui.theme.StatusEarlySkip
-import com.musicengine.mediapoc.ui.theme.CardBg
 import com.musicengine.mediapoc.ui.theme.DarkBg
+import com.musicengine.mediapoc.ui.theme.GlassBorder
+import com.musicengine.mediapoc.ui.theme.GlassBorderFaint
+import com.musicengine.mediapoc.ui.theme.GlassSurface
+import com.musicengine.mediapoc.ui.theme.GlassSurfaceStrong
+import com.musicengine.mediapoc.ui.theme.GlassSurfaceSubtle
+import com.musicengine.mediapoc.ui.theme.MetricCyan
+import com.musicengine.mediapoc.ui.theme.MetricGold
+import com.musicengine.mediapoc.ui.theme.MetricPink
+import com.musicengine.mediapoc.ui.theme.MetricPurple
+import com.musicengine.mediapoc.ui.theme.StatusEarlySkip
 import com.musicengine.mediapoc.ui.theme.StatusPlaying
 import com.musicengine.mediapoc.ui.theme.TextMuted
 import com.musicengine.mediapoc.ui.theme.TextPrimary
@@ -61,143 +98,528 @@ import com.musicengine.mediapoc.ui.viewmodel.PlayerViewModel
 @Composable
 fun LibraryScreen(viewModel: PlayerViewModel) {
     val topTracks by viewModel.topTracks.collectAsState()
-    val totalTracks by viewModel.totalTrackCount.collectAsState()
+    val likedTracks by viewModel.likedTracks.collectAsState()
+    val totalCount by viewModel.totalTrackCount.collectAsState()
+    val totalListeningTimeFormatted by viewModel.totalListeningTimeFormatted.collectAsState()
     val transitions by viewModel.transitions.collectAsState()
     val penalties by viewModel.activePenalties.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Top Tracks (${topTracks.size})", "Transitions (${transitions.size})", "Penalties (${penalties.size})")
+    var searchQuery by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
+
+    val trackByKey = remember(topTracks, likedTracks) {
+        val map = topTracks.associateBy { it.trackKey }.toMutableMap()
+        likedTracks.forEach { map[it.trackKey] = it }
+        map
+    }
+
+    val filteredLikedTracks = remember(likedTracks, searchQuery) {
+        if (searchQuery.isBlank()) likedTracks
+        else likedTracks.filter {
+            it.title.contains(searchQuery, ignoreCase = true) ||
+            it.artist.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    val filteredTopTracks = remember(topTracks, searchQuery) {
+        if (searchQuery.isBlank()) topTracks
+        else topTracks.filter {
+            it.title.contains(searchQuery, ignoreCase = true) ||
+            it.artist.contains(searchQuery, ignoreCase = true)
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(horizontal = 16.dp)
+            .padding(top = 10.dp)
     ) {
-        // Stats Overview Header
+        // Screen Title Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(CardBg)
-                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceAround
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            StatItem(label = "Library", value = totalTracks.toString(), color = AccentPink)
-            StatItem(label = "Transitions", value = transitions.size.toString(), color = StatusReplay)
-            StatItem(label = "Active Penalties", value = penalties.size.toString(), color = StatusEarlySkip)
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        ScrollableTabRow(
-            selectedTabIndex = selectedTab,
-            containerColor = Color.Transparent,
-            contentColor = AccentPink,
-            edgePadding = 0.dp,
-            indicator = { tabPositions ->
-                TabRowDefaults.SecondaryIndicator(
-                    modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                    color = AccentPink
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(MetricPurple.copy(alpha = 0.18f))
+                    .border(1.dp, MetricPurple.copy(alpha = 0.4f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Headphones,
+                    contentDescription = null,
+                    tint = MetricPurple,
+                    modifier = Modifier.size(18.dp)
                 )
-            },
-            divider = {}
-        ) {
-            tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTab == index,
-                    onClick = { selectedTab = index },
-                    text = {
-                        Text(
-                            text = title,
-                            fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selectedTab == index) TextPrimary else TextMuted
-                        )
-                    }
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(
+                    text = "Library & Flow",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "Your listening habits & transition map",
+                    fontSize = 11.sp,
+                    color = TextMuted
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 4 Floating Glass Metric Widgets (2x2 Grid)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            MetricTile(
+                icon = Icons.Filled.Favorite,
+                value = "${likedTracks.size}",
+                label = "Liked",
+                accentColor = MetricPink,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { selectedTab = 0 }
+            )
+            MetricTile(
+                icon = Icons.Filled.MusicNote,
+                value = "$totalCount",
+                label = "Tracks",
+                accentColor = MetricPurple,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { selectedTab = 1 }
+            )
+            MetricTile(
+                icon = Icons.Filled.Route,
+                value = "${transitions.size}",
+                label = "Flow Paths",
+                accentColor = MetricCyan,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { selectedTab = 2 }
+            )
+            MetricTile(
+                icon = Icons.Filled.BarChart,
+                value = totalListeningTimeFormatted,
+                label = "Listen Time",
+                accentColor = MetricGold,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Liquid Segmented Switcher: Liked | Top Songs | Flow Map | Cooldowns
+        GlassSegmentedControl(
+            options = listOf("Liked", "Top Songs", "Flow Map", "Cooldowns"),
+            selectedIndex = selectedTab,
+            onSelect = { selectedTab = it },
+            modifier = Modifier.fillMaxWidth()
+        )
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // Section Content
         when (selectedTab) {
-            0 -> TopTracksList(tracks = topTracks)
-            1 -> TransitionsList(transitions = transitions)
-            2 -> PenaltiesList(penalties = penalties, viewModel = viewModel)
+            0 -> {
+                // Filter Search Bar for Liked Songs
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(GlassShapePill)
+                        .background(GlassSurfaceStrong)
+                        .border(1.dp, GlassBorderFaint, GlassShapePill)
+                        .padding(horizontal = 14.dp, vertical = 9.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Filter liked songs...",
+                                    fontSize = 13.sp,
+                                    color = TextMuted
+                                )
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                textStyle = TextStyle(
+                                    fontSize = 13.sp,
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                cursorBrush = SolidColor(AccentPink),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Clear,
+                                    contentDescription = "Clear",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                LikedTracksList(
+                    tracks = filteredLikedTracks,
+                    viewModel = viewModel,
+                    hasFilter = searchQuery.isNotEmpty()
+                )
+            }
+            1 -> {
+                // Filter Search Bar for Top Songs
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(GlassShapePill)
+                        .background(GlassSurfaceStrong)
+                        .border(1.dp, GlassBorderFaint, GlassShapePill)
+                        .padding(horizontal = 14.dp, vertical = 9.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Filter songs or artists...",
+                                    fontSize = 13.sp,
+                                    color = TextMuted
+                                )
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                textStyle = TextStyle(
+                                    fontSize = 13.sp,
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                cursorBrush = SolidColor(MetricPurple),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Clear,
+                                    contentDescription = "Clear",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                TopTracksList(
+                    tracks = filteredTopTracks,
+                    viewModel = viewModel
+                )
+            }
+            2 -> {
+                TransitionsList(
+                    transitions = transitions,
+                    trackByKey = trackByKey
+                )
+            }
+            3 -> {
+                PenaltiesList(
+                    penalties = penalties,
+                    viewModel = viewModel,
+                    trackByKey = trackByKey
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun StatItem(label: String, value: String, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = color)
-        Text(text = label, fontSize = 12.sp, color = TextMuted)
+private fun LikedTracksList(
+    tracks: List<TrackEntity>,
+    viewModel: PlayerViewModel,
+    hasFilter: Boolean
+) {
+    if (tracks.isEmpty()) {
+        if (hasFilter) {
+            LibraryEmptyState(message = "No liked tracks matching your search.")
+        } else {
+            LikedEmptyState()
+        }
+    } else {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 104.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(tracks, key = { it.trackKey }) { track ->
+                TrackRowItem(
+                    track = track,
+                    onPlayClick = { viewModel.playTrack(track) },
+                    onRate = { rating -> viewModel.rateSpecificTrack(track.trackKey, rating) }
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun TopTracksList(tracks: List<TrackEntity>) {
-    if (tracks.isEmpty()) {
-        EmptyState(message = "No tracks in Personal Library yet.\nPlay music in Apple Music or YouTube Music to start learning!")
-    } else {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(tracks, key = { it.trackKey }) { track ->
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = CardBg),
+private fun LikedEmptyState() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 40.dp, bottom = 100.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        GlassCard(
+            modifier = Modifier.fillMaxWidth(0.92f),
+            shape = RoundedCornerShape(24.dp),
+            contentPadding = PaddingValues(24.dp)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(AccentPink.copy(alpha = 0.16f))
+                        .border(1.dp, AccentPink.copy(alpha = 0.45f), CircleShape),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = track.title,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = TextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
-                                )
-                                if (track.userRating == UserRating.LIKED) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Icon(Icons.Filled.Favorite, contentDescription = "Liked", tint = Color.Red, modifier = Modifier.size(14.dp))
-                                } else if (track.userRating == UserRating.DISLIKED) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Icon(Icons.Filled.ThumbDown, contentDescription = "Disliked", tint = StatusEarlySkip, modifier = Modifier.size(14.dp))
-                                }
-                            }
-                            Text(
-                                text = "${track.artist} • ${track.album}",
-                                fontSize = 12.sp,
-                                color = TextMuted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                    Icon(
+                        imageVector = Icons.Filled.Favorite,
+                        contentDescription = null,
+                        tint = AccentPink,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = "No Liked Songs Yet",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Tap the heart icon on Now Playing or in your library to save tracks here.\nLiked songs receive a +12 pt preference boost in AI recommendations!",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 17.sp
+                )
+            }
+        }
+    }
+}
 
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "Plays: ${track.totalPlays}",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = StatusPlaying
-                            )
-                            Text(
-                                text = "Done: ${track.totalCompletions} | Skips: ${track.totalEarlySkips + track.totalLateSkips}",
-                                fontSize = 11.sp,
-                                color = TextSecondary
-                            )
-                        }
-                    }
+@Composable
+private fun TopTracksList(
+    tracks: List<TrackEntity>,
+    viewModel: PlayerViewModel
+) {
+    if (tracks.isEmpty()) {
+        LibraryEmptyState(message = "No tracks in your library yet.\nStart playing songs in Apple Music or YT Music to build your library!")
+    } else {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 104.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(tracks, key = { it.trackKey }) { track ->
+                TrackRowItem(
+                    track = track,
+                    onPlayClick = { viewModel.playTrack(track) },
+                    onRate = { rating -> viewModel.rateSpecificTrack(track.trackKey, rating) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackRowItem(
+    track: TrackEntity,
+    onPlayClick: () -> Unit,
+    onRate: (UserRating) -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+
+    GlassCard(
+        shape = RoundedCornerShape(16.dp),
+        contentPadding = PaddingValues(10.dp),
+        onClick = onPlayClick
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Artwork Thumbnail
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(GlassSurfaceStrong)
+                    .border(1.dp, GlassBorderFaint, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!track.artworkUri.isNullOrBlank()) {
+                    AsyncImage(
+                        model = track.artworkUri,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        Icons.Filled.MusicNote,
+                        contentDescription = null,
+                        tint = MetricPurple,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Metadata
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = track.artist,
+                        fontSize = 11.sp,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "${track.totalPlays} plays",
+                        fontSize = 10.sp,
+                        color = TextMuted
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Like Toggle
+            val isLiked = track.userRating == UserRating.LIKED
+            IconButton(
+                onClick = {
+                    val next = if (isLiked) UserRating.NONE else UserRating.LIKED
+                    onRate(next)
+                },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                    contentDescription = "Like",
+                    tint = if (isLiked) AccentPink else TextMuted,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+
+            // Options Menu (Liquid Glass Popup)
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = "More",
+                        tint = TextMuted,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+
+                GlassDropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    GlassDropdownMenuItem(
+                        text = "Play in Music App",
+                        onClick = {
+                            showMenu = false
+                            onPlayClick()
+                        },
+                        leadingIcon = Icons.Filled.PlayArrow,
+                        iconTint = AccentPink
+                    )
+                    GlassDropdownMenuItem(
+                        text = if (isLiked) "Remove Like" else "Favorite Track",
+                        onClick = {
+                            showMenu = false
+                            onRate(if (isLiked) UserRating.NONE else UserRating.LIKED)
+                        },
+                        leadingIcon = Icons.Filled.Favorite,
+                        iconTint = AccentPink
+                    )
+                    GlassDropdownMenuItem(
+                        text = "Dislike Track",
+                        onClick = {
+                            showMenu = false
+                            onRate(UserRating.DISLIKED)
+                        },
+                        leadingIcon = Icons.Filled.ThumbDown,
+                        iconTint = StatusEarlySkip
+                    )
                 }
             }
         }
@@ -205,125 +627,142 @@ private fun TopTracksList(tracks: List<TrackEntity>) {
 }
 
 @Composable
-private fun TransitionsList(transitions: List<TransitionEntity>) {
+private fun TransitionsList(
+    transitions: List<TransitionEntity>,
+    trackByKey: Map<String, TrackEntity>
+) {
     if (transitions.isEmpty()) {
-        EmptyState(message = "No transitions learned yet.\nComplete or skip songs sequentially to train Markov pairs!")
+        LibraryEmptyState(message = "No transition flow paths recorded yet.\nAs you listen to consecutive tracks, Markov transition probabilities will appear here.")
     } else {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 104.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
             items(transitions, key = { "${it.fromTrackKey}->${it.toTrackKey}" }) { item ->
-                val scoreColor = when {
-                    item.transitionScore > 0.3f -> StatusPlaying
-                    item.transitionScore < -0.2f -> StatusEarlySkip
-                    else -> TextSecondary
-                }
+                val fromEntity = trackByKey[item.fromTrackKey]
+                val toEntity = trackByKey[item.toTrackKey]
 
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = CardBg),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                val fromTitle = fromEntity?.title ?: item.fromTrackKey.substringBeforeLast(" - ").trim()
+                val fromArtist = fromEntity?.artist ?: item.fromTrackKey.substringAfterLast(" - ").trim()
+                val toTitle = toEntity?.title ?: item.toTrackKey.substringBeforeLast(" - ").trim()
+                val toArtist = toEntity?.artist ?: item.toTrackKey.substringAfterLast(" - ").trim()
+
+                DualArtworkTransitionCard(
+                    fromTitle = fromTitle,
+                    fromArtist = fromArtist,
+                    fromArtworkUri = fromEntity?.artworkUri,
+                    toTitle = toTitle,
+                    toArtist = toArtist,
+                    toArtworkUri = toEntity?.artworkUri,
+                    score = item.transitionScore,
+                    count = item.transitionCount
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PenaltiesList(
+    penalties: List<SkipPenaltyEntity>,
+    viewModel: PlayerViewModel,
+    trackByKey: Map<String, TrackEntity>
+) {
+    if (penalties.isEmpty()) {
+        LibraryEmptyState(message = "No active cooldowns!\nTracks skipped early decay smoothly over a 4-hour half-life.")
+    } else {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 104.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(penalties, key = { it.trackKey }) { item ->
+                val track = trackByKey[item.trackKey]
+                val currentPenalty = viewModel.calculateEffectivePenalty(item)
+                val remaining = if (item.initialPenalty > 0f) currentPenalty / item.initialPenalty else 0f
+                val title = track?.title ?: item.trackKey.substringBeforeLast(" - ").trim()
+                val artist = track?.artist ?: item.trackKey.substringAfterLast(" - ").trim()
+
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(12.dp)
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = item.fromTrackKey,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "to", tint = AccentPink, modifier = Modifier.size(12.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = item.toTrackKey,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = TextSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Text(
-                                text = "Count: ${item.transitionCount} (Success: ${item.successCount}, Skips: ${item.earlySkipCount + item.lateSkipCount})",
-                                fontSize = 11.sp,
-                                color = TextMuted
-                            )
-                        }
-
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(scoreColor.copy(alpha = 0.15f))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(GlassSurfaceStrong)
+                                .border(1.dp, GlassBorderFaint, RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = String.format("%+.2f", item.transitionScore),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = scoreColor
-                            )
+                            if (!track?.artworkUri.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = track?.artworkUri,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Filled.MusicNote,
+                                    contentDescription = null,
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
-                    }
-                }
-            }
-        }
-    }
-}
 
-@Composable
-private fun PenaltiesList(penalties: List<SkipPenaltyEntity>, viewModel: PlayerViewModel) {
-    if (penalties.isEmpty()) {
-        EmptyState(message = "No active skip penalties.\nWhen you skip a song early, a decaying penalty will appear here.")
-    } else {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(penalties, key = { it.trackKey }) { item ->
-                val currentPenalty = viewModel.calculateEffectivePenalty(item)
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = CardBg),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                        Spacer(modifier = Modifier.width(12.dp))
+
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = item.trackKey,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
+                                text = title,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = TextPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "Half-life: ${item.halfLifeHours}h (Initial: -${item.initialPenalty.toInt()} pts)",
+                                text = artist,
                                 fontSize = 11.sp,
-                                color = TextMuted
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            val fill by animateFloatAsState(
+                                targetValue = remaining,
+                                animationSpec = tween(durationMillis = 700),
+                                label = "decay"
+                            )
+                            LinearProgressIndicator(
+                                progress = { fill.coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(50)),
+                                color = StatusEarlySkip.copy(alpha = 0.85f),
+                                trackColor = GlassSurfaceSubtle
                             )
                         }
+
+                        Spacer(modifier = Modifier.width(12.dp))
 
                         Column(horizontalAlignment = Alignment.End) {
                             Text(
                                 text = String.format("-%.1f pts", currentPenalty),
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = StatusEarlySkip
                             )
                             Text(
-                                text = "Decaying",
+                                text = "Decaying (4h)",
                                 fontSize = 10.sp,
                                 color = TextMuted
                             )
@@ -336,19 +775,19 @@ private fun PenaltiesList(penalties: List<SkipPenaltyEntity>, viewModel: PlayerV
 }
 
 @Composable
-private fun EmptyState(message: String) {
+private fun LibraryEmptyState(message: String) {
     Box(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
+            .fillMaxWidth()
+            .padding(top = 48.dp, bottom = 24.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = message,
             color = TextMuted,
             fontSize = 13.sp,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            lineHeight = 18.sp
+            textAlign = TextAlign.Center,
+            lineHeight = 19.sp
         )
     }
 }

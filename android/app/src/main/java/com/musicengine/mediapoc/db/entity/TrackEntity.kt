@@ -1,10 +1,18 @@
 package com.musicengine.mediapoc.db.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.musicengine.mediapoc.model.UserRating
 
-@Entity(tableName = "tracks")
+@Entity(
+    tableName = "tracks",
+    indices = [
+        Index("lastPlayedAt"),
+        Index("artist"),
+        Index("totalPlays")
+    ]
+)
 data class TrackEntity(
     @PrimaryKey
     val trackKey: String, // format: "$title - $artist"
