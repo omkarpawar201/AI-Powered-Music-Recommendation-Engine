@@ -21,7 +21,13 @@ data class CandidateTrack(
     val source: CandidateSource = CandidateSource.PERSONAL_LIBRARY
 ) {
     val trackKey: String
-        get() = "${title.trim()} - ${artist.trim()}"
+        get() = TrackKeyNormalizer.canonicalKey(title, artist)
+
+    /** True when this candidate came from a network-powered source. */
+    val isCatalogSource: Boolean
+        get() = source == CandidateSource.CATALOG_ARTIST_TOP ||
+            source == CandidateSource.CATALOG_SEARCH ||
+            source == CandidateSource.EXPLORATION
 }
 
 data class ScoreBreakdown(
@@ -47,5 +53,6 @@ data class RecommendationResult(
     val generatedAt: Long = System.currentTimeMillis(),
     val topCandidate: ScoredCandidate? = null,
     val rankedCandidates: List<ScoredCandidate> = emptyList(),
-    val candidatePoolSize: Int = 0
+    val candidatePoolSize: Int = 0,
+    val offlineUsed: Boolean = false
 )

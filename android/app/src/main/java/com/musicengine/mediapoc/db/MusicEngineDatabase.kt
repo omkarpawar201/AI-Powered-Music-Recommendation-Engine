@@ -21,8 +21,8 @@ import com.musicengine.mediapoc.db.entity.TransitionEntity
         TransitionEntity::class,
         SkipPenaltyEntity::class
     ],
-    version = 1,
-    exportSchema = false
+    version = 2,
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class MusicEngineDatabase : RoomDatabase() {
@@ -43,14 +43,15 @@ abstract class MusicEngineDatabase : RoomDatabase() {
                     MusicEngineDatabase::class.java,
                     "music_engine_db"
                 )
-                    // POC safety net: silently drops data on schema changes.
-                    // Before shipping, replace with explicit Migration objects per schema bump
-                    // and set exportSchema = true to track the schema history.
-                    .fallbackToDestructiveMigration()
+                    // Strict migrations only — every schema change must ship a Migration object.
+                    .addMigrations(MIGRATION_1_2)
                     .build()
                 INSTANCE = instance
                 instance
             }
         }
+
+        // v1 -> v2: canonical track key re-keying + new indices
+        private val MIGRATION_1_2 = MigrationV1ToV2()
     }
 }
