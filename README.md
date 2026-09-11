@@ -161,17 +161,6 @@ AI-Powered-Music-Recommendation-Engine/
 
 ---
 
-## 🚀 Development Roadmap
-
-| Phase | Description | Status |
-|---|---|---|
-| **Phase 1** | **Android MediaSession Controller & Telemetry** (Active observer, position extrapolator, event classifier, `TransportControls`, POC tester UI) | **Completed & Verified ✅** |
-| **Phase 2** | **Personal Music Database (Room DB)** (`TrackEntity`, `PlayEventEntity`, `TransitionEntity`, `SkipPenaltyEntity`, Half-life decay math) | **In Progress 🔄** |
-| **Phase 3** | **Candidate Generator & Heuristic Engine** (Markov transitions $A \to B$, Multi-tier candidate generation, Multi-factor scoring equation) | **Pending ⏳** |
-| **Phase 4** | **Gemini AI Contextual Re-Ranking** (Google GenAI Kotlin SDK, compact context serializer, structured JSON reasoning) | **Pending ⏳** |
-| **Phase 5** | **Autonomous Background Queue** (Lifecycle-safe continuous autoplay service for zero-touch transitions) | **Pending ⏳** |
-
----
 
 ## 🛠️ Getting Started & Local Setup
 
