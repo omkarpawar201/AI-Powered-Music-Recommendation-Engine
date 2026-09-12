@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -99,24 +100,34 @@ import com.musicengine.mediapoc.ui.viewmodel.PlayerViewModel
 fun LibraryScreen(viewModel: PlayerViewModel) {
     val topTracks by viewModel.topTracks.collectAsState()
     val likedTracks by viewModel.likedTracks.collectAsState()
+    val dislikedTracks by viewModel.dislikedTracks.collectAsState()
     val totalCount by viewModel.totalTrackCount.collectAsState()
-    val totalListeningTimeFormatted by viewModel.totalListeningTimeFormatted.collectAsState()
     val transitions by viewModel.transitions.collectAsState()
     val penalties by viewModel.activePenalties.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
+    var showDislikedInLikedTab by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
-    val trackByKey = remember(topTracks, likedTracks) {
+    val trackByKey = remember(topTracks, likedTracks, dislikedTracks) {
         val map = topTracks.associateBy { it.trackKey }.toMutableMap()
         likedTracks.forEach { map[it.trackKey] = it }
+        dislikedTracks.forEach { map[it.trackKey] = it }
         map
     }
 
     val filteredLikedTracks = remember(likedTracks, searchQuery) {
         if (searchQuery.isBlank()) likedTracks
         else likedTracks.filter {
+            it.title.contains(searchQuery, ignoreCase = true) ||
+            it.artist.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    val filteredDislikedTracks = remember(dislikedTracks, searchQuery) {
+        if (searchQuery.isBlank()) dislikedTracks
+        else dislikedTracks.filter {
             it.title.contains(searchQuery, ignoreCase = true) ||
             it.artist.contains(searchQuery, ignoreCase = true)
         }
@@ -209,11 +220,13 @@ fun LibraryScreen(viewModel: PlayerViewModel) {
                     .clickable { selectedTab = 2 }
             )
             MetricTile(
-                icon = Icons.Filled.BarChart,
-                value = totalListeningTimeFormatted,
-                label = "Listen Time",
-                accentColor = MetricGold,
-                modifier = Modifier.weight(1f)
+                icon = Icons.Filled.Timer,
+                value = "${penalties.size}",
+                label = "Cooldowns",
+                accentColor = if (penalties.isNotEmpty()) StatusEarlySkip else MetricGold,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { selectedTab = 3 }
             )
         }
 
@@ -232,7 +245,79 @@ fun LibraryScreen(viewModel: PlayerViewModel) {
         // Section Content
         when (selectedTab) {
             0 -> {
-                // Filter Search Bar for Liked Songs
+                // Liked / Disliked Sub-Segment Switcher
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Liked Pill
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(GlassShapePill)
+                            .background(if (!showDislikedInLikedTab) AccentPink.copy(alpha = 0.20f) else GlassSurfaceStrong)
+                            .border(1.dp, if (!showDislikedInLikedTab) AccentPink.copy(alpha = 0.65f) else GlassBorderFaint, GlassShapePill)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { showDislikedInLikedTab = false }
+                            )
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.Favorite,
+                                contentDescription = null,
+                                tint = if (!showDislikedInLikedTab) AccentPink else TextMuted,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Liked (${likedTracks.size})",
+                                fontSize = 12.sp,
+                                fontWeight = if (!showDislikedInLikedTab) FontWeight.Bold else FontWeight.Medium,
+                                color = if (!showDislikedInLikedTab) TextPrimary else TextSecondary
+                            )
+                        }
+                    }
+
+                    // Disliked Pill
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(GlassShapePill)
+                            .background(if (showDislikedInLikedTab) StatusEarlySkip.copy(alpha = 0.20f) else GlassSurfaceStrong)
+                            .border(1.dp, if (showDislikedInLikedTab) StatusEarlySkip.copy(alpha = 0.65f) else GlassBorderFaint, GlassShapePill)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { showDislikedInLikedTab = true }
+                            )
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.ThumbDown,
+                                contentDescription = null,
+                                tint = if (showDislikedInLikedTab) StatusEarlySkip else TextMuted,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Disliked (${dislikedTracks.size})",
+                                fontSize = 12.sp,
+                                fontWeight = if (showDislikedInLikedTab) FontWeight.Bold else FontWeight.Medium,
+                                color = if (showDislikedInLikedTab) TextPrimary else TextSecondary
+                            )
+                        }
+                    }
+                }
+
+                // Filter Search Bar
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -252,7 +337,7 @@ fun LibraryScreen(viewModel: PlayerViewModel) {
                         Box(modifier = Modifier.weight(1f)) {
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    text = "Filter liked songs...",
+                                    text = if (!showDislikedInLikedTab) "Filter liked songs..." else "Filter disliked songs...",
                                     fontSize = 13.sp,
                                     color = TextMuted
                                 )
@@ -265,7 +350,7 @@ fun LibraryScreen(viewModel: PlayerViewModel) {
                                     color = TextPrimary,
                                     fontWeight = FontWeight.Medium
                                 ),
-                                cursorBrush = SolidColor(AccentPink),
+                                cursorBrush = SolidColor(if (!showDislikedInLikedTab) AccentPink else StatusEarlySkip),
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
@@ -290,11 +375,19 @@ fun LibraryScreen(viewModel: PlayerViewModel) {
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                LikedTracksList(
-                    tracks = filteredLikedTracks,
-                    viewModel = viewModel,
-                    hasFilter = searchQuery.isNotEmpty()
-                )
+                if (!showDislikedInLikedTab) {
+                    LikedTracksList(
+                        tracks = filteredLikedTracks,
+                        viewModel = viewModel,
+                        hasFilter = searchQuery.isNotEmpty()
+                    )
+                } else {
+                    DislikedTracksList(
+                        tracks = filteredDislikedTracks,
+                        viewModel = viewModel,
+                        hasFilter = searchQuery.isNotEmpty()
+                    )
+                }
             }
             1 -> {
                 // Filter Search Bar for Top Songs
@@ -400,6 +493,87 @@ private fun LikedTracksList(
                     track = track,
                     onPlayClick = { viewModel.playTrack(track) },
                     onRate = { rating -> viewModel.rateSpecificTrack(track.trackKey, rating) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DislikedTracksList(
+    tracks: List<TrackEntity>,
+    viewModel: PlayerViewModel,
+    hasFilter: Boolean
+) {
+    if (tracks.isEmpty()) {
+        if (hasFilter) {
+            LibraryEmptyState(message = "No disliked tracks matching your search.")
+        } else {
+            DislikedEmptyState()
+        }
+    } else {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 104.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(tracks, key = { it.trackKey }) { track ->
+                TrackRowItem(
+                    track = track,
+                    onPlayClick = { viewModel.playTrack(track) },
+                    onRate = { rating -> viewModel.rateSpecificTrack(track.trackKey, rating) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DislikedEmptyState() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 40.dp, bottom = 100.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        GlassCard(
+            modifier = Modifier.fillMaxWidth(0.92f),
+            shape = RoundedCornerShape(24.dp),
+            contentPadding = PaddingValues(24.dp)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(StatusEarlySkip.copy(alpha = 0.16f))
+                        .border(1.dp, StatusEarlySkip.copy(alpha = 0.45f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ThumbDown,
+                        contentDescription = null,
+                        tint = StatusEarlySkip,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = "No Disliked Songs",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Songs you dislike from the 3-dots menu are permanently blocked from AI recommendations and collected here.\nYou can restore them at any time.",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 17.sp
                 )
             }
         }
@@ -529,14 +703,44 @@ private fun TrackRowItem(
 
             // Metadata
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = track.title,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = track.title,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (track.userRating == UserRating.DISLIKED) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(StatusEarlySkip.copy(alpha = 0.16f))
+                                .border(1.dp, StatusEarlySkip.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Filled.ThumbDown,
+                                    contentDescription = null,
+                                    tint = StatusEarlySkip,
+                                    modifier = Modifier.size(9.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "DISLIKED",
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = StatusEarlySkip,
+                                    letterSpacing = 0.3.sp
+                                )
+                            }
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -560,6 +764,7 @@ private fun TrackRowItem(
 
             // Like Toggle
             val isLiked = track.userRating == UserRating.LIKED
+            val isDisliked = track.userRating == UserRating.DISLIKED
             IconButton(
                 onClick = {
                     val next = if (isLiked) UserRating.NONE else UserRating.LIKED
@@ -612,13 +817,13 @@ private fun TrackRowItem(
                         iconTint = AccentPink
                     )
                     GlassDropdownMenuItem(
-                        text = "Dislike Track",
+                        text = if (isDisliked) "Remove Dislike (Restore)" else "Dislike Track (Never Recommend)",
                         onClick = {
                             showMenu = false
-                            onRate(UserRating.DISLIKED)
+                            onRate(if (isDisliked) UserRating.NONE else UserRating.DISLIKED)
                         },
                         leadingIcon = Icons.Filled.ThumbDown,
-                        iconTint = StatusEarlySkip
+                        iconTint = if (isDisliked) TextSecondary else StatusEarlySkip
                     )
                 }
             }

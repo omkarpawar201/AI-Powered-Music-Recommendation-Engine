@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
@@ -178,15 +179,23 @@ fun NowPlayingScreen(viewModel: PlayerViewModel) {
                 }
             }
 
-            // Right Actions: Heart Like & 3-Dots Menu
+            // Right Actions: Heart Like, Dislike & 3-Dots Menu
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val isLiked = nowPlaying?.userRating == UserRating.LIKED
+                val isDisliked = nowPlaying?.userRating == UserRating.DISLIKED
+
                 val heartScale by animateFloatAsState(
                     targetValue = if (isLiked) 1.2f else 1f,
                     animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
                     label = "heartSpring"
                 )
+                val thumbScale by animateFloatAsState(
+                    targetValue = if (isDisliked) 1.2f else 1f,
+                    animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                    label = "thumbSpring"
+                )
 
+                // Like Button
                 GlassIconButton(
                     icon = if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                     contentDescription = "Like Song",
@@ -203,7 +212,26 @@ fun NowPlayingScreen(viewModel: PlayerViewModel) {
                     iconSize = 19.dp
                 )
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Dislike Button
+                GlassIconButton(
+                    icon = Icons.Filled.ThumbDown,
+                    contentDescription = "Dislike Song (Never Recommend)",
+                    tint = if (isDisliked) StatusEarlySkip else TextMuted,
+                    onClick = {
+                        val newRating = if (isDisliked) UserRating.NONE else UserRating.DISLIKED
+                        viewModel.rateTrack(newRating)
+                    },
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = thumbScale
+                        scaleY = thumbScale
+                    },
+                    size = 38.dp,
+                    iconSize = 18.dp
+                )
+
+                Spacer(modifier = Modifier.width(6.dp))
 
                 Box {
                     GlassIconButton(

@@ -646,9 +646,10 @@ class MediaNotificationListenerService : NotificationListenerService() {
             track = newTrack
         )
 
-        // Upsert new track in Room and restore any existing user rating
+        // Upsert new track in Room, clean up expired cooldowns, and restore any existing user rating
         serviceScope.launch(Dispatchers.IO) {
             val saved = repository?.recordTrackStart(newTrack)
+            repository?.cleanupExpiredPenalties()
             if (saved != null && saved.userRating != UserRating.NONE) {
                 val updated = currentTrack?.copy(userRating = saved.userRating)
                 currentTrack = updated

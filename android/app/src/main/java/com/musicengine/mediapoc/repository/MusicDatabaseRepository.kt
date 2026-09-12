@@ -72,6 +72,8 @@ class MusicDatabaseRepository(
 
     fun getLikedTracksFlow(): Flow<List<TrackEntity>> = trackDao.getLikedTracksFlow()
 
+    fun getDislikedTracksFlow(): Flow<List<TrackEntity>> = trackDao.getDislikedTracksFlow()
+
     fun getTotalTrackCountFlow(): Flow<Int> = trackDao.getTotalTrackCountFlow()
 
     fun getTotalListeningTimeFlow(): Flow<Long> = playEventDao.getTotalListeningTimeFlow().map { it ?: 0L }

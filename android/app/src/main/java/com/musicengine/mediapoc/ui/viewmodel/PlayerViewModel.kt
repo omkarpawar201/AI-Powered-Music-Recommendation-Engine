@@ -13,11 +13,11 @@ import com.musicengine.mediapoc.model.TelemetryEvent
 import com.musicengine.mediapoc.model.TrackMetadata
 import com.musicengine.mediapoc.model.UserRating
 import com.musicengine.mediapoc.service.MediaNotificationListenerService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -61,15 +61,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     val likedTracks: StateFlow<List<TrackEntity>> = repository.getLikedTracksFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val dislikedTracks: StateFlow<List<TrackEntity>> = repository.getDislikedTracksFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val totalTrackCount: StateFlow<Int> = repository.getTotalTrackCountFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val totalListeningTime: StateFlow<Long> = combine(
-        repository.getTotalListeningTimeFlow(),
-        MediaNotificationListenerService.currentSessionListeningTimeFlow
-    ) { dbTotal, liveSessionMs ->
-        dbTotal + liveSessionMs
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+    val totalListeningTime: StateFlow<Long> = repository.getTotalListeningTimeFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
     val totalListeningTimeFormatted: StateFlow<String> = totalListeningTime
         .map { ms ->
@@ -89,15 +88,24 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     val transitions: StateFlow<List<TransitionEntity>> = repository.getAllTransitionsFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val activePenalties: StateFlow<List<SkipPenaltyEntity>> = repository.getAllPenaltiesFlow()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     fun calculateEffectivePenalty(penalty: SkipPenaltyEntity): Float {
         return repository.calculateEffectivePenalty(
             initialPenalty = penalty.initialPenalty,
             skipTimestamp = penalty.skipTimestamp,
             halfLifeHours = penalty.halfLifeHours
         )
+    }
+
+    val activePenalties: StateFlow<List<SkipPenaltyEntity>> = repository.getAllPenaltiesFlow()
+        .map { list ->
+            list.filter { calculateEffectivePenalty(it) >= 1.0f }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.cleanupExpiredPenalties()
+        }
     }
 
     private val recommendationEngine = RecommendationEngine.getInstance(application)

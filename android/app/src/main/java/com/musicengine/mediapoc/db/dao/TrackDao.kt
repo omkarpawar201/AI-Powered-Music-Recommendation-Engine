@@ -28,6 +28,9 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE userRating = 'LIKED' ORDER BY lastPlayedAt DESC")
     fun getLikedTracksFlow(): Flow<List<TrackEntity>>
 
+    @Query("SELECT * FROM tracks WHERE userRating = 'DISLIKED' ORDER BY lastPlayedAt DESC")
+    fun getDislikedTracksFlow(): Flow<List<TrackEntity>>
+
     @Query("UPDATE tracks SET userRating = :rating WHERE trackKey = :trackKey")
     suspend fun updateUserRating(trackKey: String, rating: UserRating)
 
